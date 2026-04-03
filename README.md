@@ -92,19 +92,19 @@ Score is based on correctness (result sets must match) and speedup:
 All 15 golden queries produce correct results. Average score **0.54** across
 all tasks (varies by run due to timing).
 
-### LLM Baseline (qwen2.5:7b, 3 attempts per task)
+### LLM Baseline (qwen2.5:7b, 5 steps per task)
 
-| Difficulty | Tasks | Avg Score | Pass Rate (>0.3) |
-|-----------|-------|-----------|-------------------|
-| Easy      | 5     | 0.336     | 3/5               |
-| Medium    | 5     | 0.274     | 2/5               |
-| Hard      | 5     | 0.424     | 3/5               |
-| **Overall** | **15** | **0.345** | **8/15**         |
+| Difficulty | Tasks | Avg Score | Pass Rate |
+|-----------|-------|-----------|-----------|
+| Easy      | 5     | 0.628     | 4/5       |
+| Medium    | 5     | 0.511     | 4/5       |
+| Hard      | 5     | 0.379     | 2/5       |
+| **Overall** | **15** | **0.506** | **10/15** |
 
-Notable: h1 (correlated→window) scored 0.908 and h2 (self-join→LEAD) scored
-0.816, showing 7B models can identify window function optimizations.
-Harder semantic transformations (m2 scalar→window, m5 NOT IN→anti-join)
-remain challenging.
+Notable: h4 (N+1 correlated→FILTER aggregation) scored 1.000 and h1
+(correlated→window) scored 0.894, showing 7B models can identify advanced
+optimization patterns. Hard tasks like self-join→LEAD and multi-pass→single
+remain genuinely challenging.
 
 ## Setup
 
@@ -145,6 +145,27 @@ python inference.py
 ## Safety
 
 DDL and DML operations are blocked: `DROP`, `DELETE`, `ALTER`, `INSERT`, `UPDATE`, `CREATE TABLE`, `GRANT`, `REVOKE`.
+
+## Reward Design
+
+- Score = f(correctness, speedup) in [0.0, 1.0] — correctness is binary, speedup is continuous
+- Incorrect results always score 0.0 (no partial credit for wrong answers)
+- Speedup scoring: ≥5x → 1.0, 2x-5x → 0.6-1.0, 1x-2x → 0.3-0.6, <1x → 0.1-0.3
+- **Result preview with feedback** shows timing breakdown and score progress after each step
+- Agents see EXPLAIN plans for both original and submitted queries to guide optimization
+
+## Example Agent Interaction
+
+```
+RESET task=e1_union_to_in
+→ Observation: original query uses UNION of 3 separate SELECTs, schema shows 500K rows
+
+STEP query="SELECT ... WHERE status IN ('completed','pending','shipped') ORDER BY amount DESC, order_id LIMIT 100"
+→ Correct ✓ | Speedup: 2.30x (5.1ms → 2.2ms) | Score: 0.641
+
+STEP query="WITH filtered AS (SELECT ... WHERE status IN (...)) SELECT * FROM filtered ORDER BY amount DESC, order_id LIMIT 100"
+→ Correct ✓ | Speedup: 2.45x (5.1ms → 2.1ms) | Score: 0.660
+```
 
 ## Project Structure
 

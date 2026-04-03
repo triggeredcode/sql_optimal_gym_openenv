@@ -133,10 +133,16 @@ class SQLGymEnvironment(Environment):
 
         explain = get_explain(self._conn, query)
 
+        prev_best = self._state.best_score
         self._state.best_score = max(self._state.best_score, score)
 
         done = score >= 0.95 or self._state.current_step >= self._state.max_steps
         self._state.task_completed = score >= 0.95
+
+        preview_with_feedback = preview_rows[:2500]
+        delta = score - prev_best
+        direction = "improved" if delta > 0.001 else ("regressed" if delta < -0.001 else "unchanged")
+        preview_with_feedback += f"\n--- {grade_msg} | Score {direction}: {prev_best:.3f} → {score:.3f} ---"
 
         return SQLObservation(
             done=done,
@@ -150,7 +156,7 @@ class SQLGymEnvironment(Environment):
             explain_plan=get_explain(self._conn, self._task.original_query),
             indexes=get_index_info(self._conn),
             last_query=query,
-            last_result_preview=preview_rows[:3000],
+            last_result_preview=preview_with_feedback[:3000],
             last_error="" if correct else grade_msg,
             last_explain=explain,
             correctness=correct,
