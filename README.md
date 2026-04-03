@@ -49,10 +49,10 @@ Train AI agents to optimize slow SQL queries. Agents rewrite queries to run fast
 ### Easy (5 tasks, max 5 steps)
 | ID | Optimization Pattern |
 |----|---------------------|
-| `e1_remove_subquery` | Flatten unnecessary subquery wrapping |
+| `e1_union_to_in` | Replace UNION of disjoint sets with IN clause |
 | `e2_redundant_distinct` | Remove DISTINCT on already-unique columns |
-| `e3_or_to_union` | Split OR conditions into UNION ALL |
-| `e4_avoid_function_on_column` | Remove function calls on filtered columns |
+| `e3_count_to_exists` | Replace COUNT for existence check with EXISTS |
+| `e4_string_groupby` | Replace string concatenation GROUP BY with columns |
 | `e5_remove_order_by` | Eliminate wasted ORDER BY in subqueries |
 
 ### Medium (5 tasks, max 8 steps)
@@ -70,7 +70,7 @@ Train AI agents to optimize slow SQL queries. Agents rewrite queries to run fast
 | `h1_subquery_to_window` | Replace correlated subqueries with window functions |
 | `h2_selfjoin_to_lead` | Replace self-join with LEAD/LAG window functions |
 | `h3_multi_pass_to_single` | Combine multiple scans into one with FILTER |
-| `h4_full_pipeline` | Multi-step pipeline optimization |
+| `h4_correlated_to_filter` | Replace N+1 correlated subqueries with FILTER aggregation |
 | `h5_nested_to_cte` | Refactor nested subqueries into CTEs |
 
 ## Scoring

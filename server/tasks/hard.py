@@ -207,7 +207,7 @@ register_task(Task(
 ))
 
 
-# ── H4: Full pipeline — join + filter + aggregate optimization ───────────────
+# ── H4: N+1 correlated subqueries → single FILTER aggregation ────────────────
 
 def _seed_sales(conn: duckdb.DuckDBPyConnection):
     conn.execute("""
@@ -231,87 +231,57 @@ def _seed_sales(conn: duckdb.DuckDBPyConnection):
             sale_id INTEGER PRIMARY KEY,
             store_id INTEGER,
             product_id INTEGER,
+            category VARCHAR,
             sale_date DATE,
             quantity INTEGER,
-            unit_price DECIMAL(10,2),
-            discount DECIMAL(5,2)
+            amount DECIMAL(10,2)
         )
     """)
     conn.execute("""
         INSERT INTO sales
         SELECT
             i, (i%200)+1, (i%500)+1,
-            DATE '2023-01-01' + INTERVAL (i%730) DAY,
-            1 + (i%10),
-            ROUND(5 + random()*95, 2),
-            ROUND(random()*0.3, 2)
-        FROM generate_series(1, 500000) t(i)
-    """)
-    conn.execute("""
-        CREATE TABLE products_catalog (
-            product_id INTEGER PRIMARY KEY,
-            product_name VARCHAR,
-            category VARCHAR,
-            brand VARCHAR
-        )
-    """)
-    conn.execute("""
-        INSERT INTO products_catalog
-        SELECT i, 'Product_' || i,
             CASE (i%5) WHEN 0 THEN 'Electronics' WHEN 1 THEN 'Clothing'
                 WHEN 2 THEN 'Food' WHEN 3 THEN 'Home' ELSE 'Sports' END,
-            'Brand_' || (i%20)
-        FROM generate_series(1, 500) t(i)
+            DATE '2023-01-01' + INTERVAL (i%730) DAY,
+            1 + (i%10),
+            ROUND(5 + random()*95, 2)
+        FROM generate_series(1, 1000000) t(i)
     """)
 
 
 register_task(Task(
-    task_id="h4_full_pipeline",
+    task_id="h4_correlated_to_filter",
     difficulty="hard",
     description=(
-        "This query computes monthly revenue by region and category for 2024. "
-        "It has multiple inefficiencies: filtering year in a HAVING clause "
-        "instead of WHERE, unnecessary wrapping subquery, and joining all "
-        "data before filtering. Push the date filter down and simplify."
+        "This query computes per-store revenue broken down by category using "
+        "four correlated subqueries — each one scans the entire sales table "
+        "per store. Rewrite as a single GROUP BY with conditional FILTER "
+        "aggregation to scan sales only once."
     ),
     hint=None,
     max_steps=12,
     original_query="""
-        SELECT * FROM (
-            SELECT
-                st.region,
-                pc.category,
-                EXTRACT(YEAR FROM s.sale_date) AS sale_year,
-                EXTRACT(MONTH FROM s.sale_date) AS sale_month,
-                SUM(s.quantity * s.unit_price * (1 - s.discount)) AS revenue,
-                COUNT(*) AS num_sales,
-                COUNT(DISTINCT s.product_id) AS unique_products
-            FROM sales s
-            JOIN stores st ON s.store_id = st.store_id
-            JOIN products_catalog pc ON s.product_id = pc.product_id
-            GROUP BY st.region, pc.category,
-                     EXTRACT(YEAR FROM s.sale_date), EXTRACT(MONTH FROM s.sale_date)
-        ) sub
-        WHERE sale_year = 2024
-        ORDER BY revenue DESC
+        SELECT
+            store_id,
+            (SELECT COALESCE(SUM(amount),0) FROM sales s WHERE s.store_id = base.store_id AND s.category = 'Electronics') AS electronics_rev,
+            (SELECT COALESCE(SUM(amount),0) FROM sales s WHERE s.store_id = base.store_id AND s.category = 'Clothing') AS clothing_rev,
+            (SELECT COALESCE(SUM(amount),0) FROM sales s WHERE s.store_id = base.store_id AND s.category = 'Food') AS food_rev,
+            (SELECT COUNT(*) FROM sales s WHERE s.store_id = base.store_id) AS total_sales
+        FROM (SELECT DISTINCT store_id FROM sales) base
+        ORDER BY electronics_rev DESC, store_id
         LIMIT 50
     """,
     golden_query="""
         SELECT
-            st.region,
-            pc.category,
-            EXTRACT(YEAR FROM s.sale_date) AS sale_year,
-            EXTRACT(MONTH FROM s.sale_date) AS sale_month,
-            SUM(s.quantity * s.unit_price * (1 - s.discount)) AS revenue,
-            COUNT(*) AS num_sales,
-            COUNT(DISTINCT s.product_id) AS unique_products
-        FROM sales s
-        JOIN stores st ON s.store_id = st.store_id
-        JOIN products_catalog pc ON s.product_id = pc.product_id
-        WHERE s.sale_date >= DATE '2024-01-01' AND s.sale_date < DATE '2025-01-01'
-        GROUP BY st.region, pc.category,
-                 EXTRACT(YEAR FROM s.sale_date), EXTRACT(MONTH FROM s.sale_date)
-        ORDER BY revenue DESC
+            store_id,
+            COALESCE(SUM(amount) FILTER (WHERE category = 'Electronics'), 0) AS electronics_rev,
+            COALESCE(SUM(amount) FILTER (WHERE category = 'Clothing'), 0) AS clothing_rev,
+            COALESCE(SUM(amount) FILTER (WHERE category = 'Food'), 0) AS food_rev,
+            COUNT(*) AS total_sales
+        FROM sales
+        GROUP BY store_id
+        ORDER BY electronics_rev DESC, store_id
         LIMIT 50
     """,
     setup_db=_seed_sales,

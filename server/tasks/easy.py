@@ -40,32 +40,36 @@ def _seed_orders(conn: duckdb.DuckDBPyConnection):
     """)
 
 
-# ── E1: Unnecessary subquery wrapping ─────────────────────────────────────────
+# ── E1: UNION of disjoint sets → IN clause ───────────────────────────────────
 
 register_task(Task(
-    task_id="e1_remove_subquery",
+    task_id="e1_union_to_in",
     difficulty="easy",
     description=(
-        "This query wraps a simple filter in an unnecessary subquery. "
-        "Flatten it into a single SELECT for better performance."
+        "This query uses three separate UNIONs to combine orders by status. "
+        "Since each sub-SELECT filters a different status value, the sets are "
+        "disjoint — UNION's deduplication is wasted work. Rewrite as a single "
+        "scan with an IN clause."
     ),
-    hint="Remove the inner SELECT and combine all conditions into one WHERE clause.",
+    hint="The three status filters never overlap, so UNION's dedup adds overhead. Use WHERE status IN (...).",
     max_steps=5,
     original_query="""
-        SELECT * FROM (
-            SELECT order_id, customer_id, amount, status, region
-            FROM orders
-            WHERE status = 'completed'
-        ) sub
-        WHERE sub.amount > 500 AND sub.region = 'East'
-        ORDER BY sub.amount DESC
+        SELECT order_id, customer_id, amount, status, region
+        FROM (
+            SELECT order_id, customer_id, amount, status, region FROM orders WHERE status = 'completed'
+            UNION
+            SELECT order_id, customer_id, amount, status, region FROM orders WHERE status = 'pending'
+            UNION
+            SELECT order_id, customer_id, amount, status, region FROM orders WHERE status = 'shipped'
+        ) combined
+        ORDER BY amount DESC, order_id
         LIMIT 100
     """,
     golden_query="""
         SELECT order_id, customer_id, amount, status, region
         FROM orders
-        WHERE status = 'completed' AND amount > 500 AND region = 'East'
-        ORDER BY amount DESC
+        WHERE status IN ('completed', 'pending', 'shipped')
+        ORDER BY amount DESC, order_id
         LIMIT 100
     """,
     setup_db=_seed_orders,
@@ -101,121 +105,107 @@ register_task(Task(
 ))
 
 
-# ── E3: OR → UNION optimization ──────────────────────────────────────────────
+# ── E3: COUNT for existence → EXISTS ─────────────────────────────────────────
 
-def _seed_products(conn: duckdb.DuckDBPyConnection):
+def _seed_customers_items(conn: duckdb.DuckDBPyConnection):
     conn.execute("""
-        CREATE TABLE products (
-            product_id INTEGER PRIMARY KEY,
+        CREATE TABLE cust (
+            customer_id INTEGER PRIMARY KEY,
             name VARCHAR,
-            category VARCHAR,
-            price DECIMAL(10,2),
-            stock INTEGER,
-            rating DECIMAL(3,1),
-            created_at DATE
+            city VARCHAR,
+            signup_date DATE
         )
     """)
     conn.execute("""
-        INSERT INTO products
-        SELECT
-            i AS product_id,
-            'Product_' || i AS name,
-            CASE (i % 6)
-                WHEN 0 THEN 'Electronics' WHEN 1 THEN 'Clothing'
-                WHEN 2 THEN 'Books' WHEN 3 THEN 'Home'
-                WHEN 4 THEN 'Sports' ELSE 'Food'
-            END AS category,
-            ROUND(5 + random() * 495, 2) AS price,
-            CAST(random() * 1000 AS INTEGER) AS stock,
-            ROUND(1 + random() * 4, 1) AS rating,
-            DATE '2022-01-01' + INTERVAL (i % 1000) DAY AS created_at
-        FROM generate_series(1, 200000) t(i)
+        INSERT INTO cust
+        SELECT i, 'Customer_' || i,
+            CASE (i % 5) WHEN 0 THEN 'NYC' WHEN 1 THEN 'LA' WHEN 2 THEN 'Chicago'
+                WHEN 3 THEN 'Houston' ELSE 'Phoenix' END,
+            DATE '2020-01-01' + INTERVAL (i % 1500) DAY
+        FROM generate_series(1, 10000) t(i)
+    """)
+    conn.execute("""
+        CREATE TABLE items (
+            item_id INTEGER PRIMARY KEY,
+            customer_id INTEGER,
+            amount DECIMAL(10,2),
+            item_date DATE
+        )
+    """)
+    conn.execute("""
+        INSERT INTO items
+        SELECT i, (i % 9000) + 1, ROUND(5 + random() * 95, 2),
+            DATE '2023-01-01' + INTERVAL (i % 730) DAY
+        FROM generate_series(1, 500000) t(i)
     """)
 
 
 register_task(Task(
-    task_id="e3_or_to_union",
+    task_id="e3_count_to_exists",
     difficulty="easy",
     description=(
-        "This query uses OR conditions across different columns, preventing "
-        "efficient filtering. Rewrite using UNION ALL for better performance."
+        "This query counts all matching rows just to check if a customer has "
+        "ANY orders. COUNT(*) scans every matching row, while EXISTS can stop "
+        "at the first match. Replace the COUNT check with EXISTS."
     ),
-    hint="Split the OR conditions into separate SELECTs joined with UNION ALL (and deduplicate if needed).",
+    hint="EXISTS returns TRUE as soon as it finds one row, avoiding a full count.",
     max_steps=5,
     original_query="""
-        SELECT product_id, name, category, price
-        FROM products
-        WHERE category = 'Electronics' OR price > 400 OR rating >= 4.5
-        ORDER BY product_id
+        SELECT c.customer_id, c.name, c.city
+        FROM cust c
+        WHERE (SELECT COUNT(*) FROM items i WHERE i.customer_id = c.customer_id) > 0
+        ORDER BY c.customer_id
+        LIMIT 200
     """,
     golden_query="""
-        SELECT DISTINCT product_id, name, category, price FROM (
-            SELECT product_id, name, category, price FROM products WHERE category = 'Electronics'
-            UNION ALL
-            SELECT product_id, name, category, price FROM products WHERE price > 400
-            UNION ALL
-            SELECT product_id, name, category, price FROM products WHERE rating >= 4.5
-        ) t
-        ORDER BY product_id
+        SELECT c.customer_id, c.name, c.city
+        FROM cust c
+        WHERE EXISTS (SELECT 1 FROM items i WHERE i.customer_id = c.customer_id)
+        ORDER BY c.customer_id
+        LIMIT 200
     """,
-    setup_db=_seed_products,
+    setup_db=_seed_customers_items,
 ))
 
 
-# ── E4: Avoid function on indexed column ─────────────────────────────────────
-
-def _seed_employees(conn: duckdb.DuckDBPyConnection):
-    conn.execute("""
-        CREATE TABLE employees (
-            emp_id INTEGER PRIMARY KEY,
-            name VARCHAR,
-            department VARCHAR,
-            salary DECIMAL(10,2),
-            hire_date DATE,
-            email VARCHAR
-        )
-    """)
-    conn.execute("""
-        INSERT INTO employees
-        SELECT
-            i AS emp_id,
-            'Employee_' || i AS name,
-            CASE (i % 5)
-                WHEN 0 THEN 'Engineering' WHEN 1 THEN 'Marketing'
-                WHEN 2 THEN 'Sales' WHEN 3 THEN 'HR' ELSE 'Finance'
-            END AS department,
-            ROUND(40000 + random() * 110000, 2) AS salary,
-            DATE '2018-01-01' + INTERVAL (i % 2000) DAY AS hire_date,
-            'emp' || i || '@company.com' AS email
-        FROM generate_series(1, 100000) t(i)
-    """)
-
+# ── E4: String concatenation GROUP BY → column GROUP BY ──────────────────────
 
 register_task(Task(
-    task_id="e4_avoid_function_on_column",
+    task_id="e4_string_groupby",
     difficulty="easy",
     description=(
-        "This query applies UPPER() to the department column in the WHERE "
-        "clause, preventing index usage. Rewrite to compare directly "
-        "since the data is already consistently cased."
+        "This query groups by a concatenated string 'region-status-product'. "
+        "String concatenation for grouping is expensive because it allocates "
+        "new strings and hashes them. Group by the separate columns instead "
+        "and compute the display key in the SELECT."
     ),
-    hint="Instead of UPPER(department) = 'ENGINEERING', compare against the actual stored value.",
+    hint="GROUP BY region, status, product is cheaper than GROUP BY region || '-' || status || '-' || product.",
     max_steps=5,
     original_query="""
-        SELECT emp_id, name, salary
-        FROM employees
-        WHERE UPPER(department) = 'ENGINEERING'
-        AND salary > 80000
-        ORDER BY salary DESC
+        SELECT
+            region || '-' || status || '-' || product AS group_key,
+            COUNT(*) AS cnt,
+            SUM(amount) AS total_amount,
+            AVG(amount) AS avg_amount,
+            MIN(order_date) AS first_order,
+            MAX(order_date) AS last_order
+        FROM orders
+        GROUP BY region || '-' || status || '-' || product
+        ORDER BY total_amount DESC
     """,
     golden_query="""
-        SELECT emp_id, name, salary
-        FROM employees
-        WHERE department = 'Engineering'
-        AND salary > 80000
-        ORDER BY salary DESC
+        SELECT
+            region || '-' || status || '-' || product AS group_key,
+            COUNT(*) AS cnt,
+            SUM(amount) AS total_amount,
+            AVG(amount) AS avg_amount,
+            MIN(order_date) AS first_order,
+            MAX(order_date) AS last_order
+        FROM orders
+        GROUP BY region, status, product
+        ORDER BY total_amount DESC
     """,
-    setup_db=_seed_employees,
+    setup_db=_seed_orders,
 ))
 
 
