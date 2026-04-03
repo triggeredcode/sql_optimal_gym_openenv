@@ -27,6 +27,7 @@ import sys
 import textwrap
 from typing import List, Optional
 
+import httpx
 from openai import OpenAI
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -74,9 +75,9 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
 
 
 def build_prompt(obs) -> str:
@@ -165,8 +166,9 @@ async def run_task(env, client, task_id, task_difficulty):
     except Exception as exc:
         log_step(step=steps_taken + 1, action="ERROR", reward=0.0, done=True, error=str(exc))
         score = 0.0
+    finally:
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
-    log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
     return {"task_id": task_id, "score": score, "success": success, "steps": steps_taken}
 
 
@@ -181,7 +183,6 @@ async def main() -> None:
     results = []
 
     async with env:
-        import httpx
         async with httpx.AsyncClient() as http:
             resp = await http.get(f"{ENV_URL}/tasks")
             tasks = resp.json()["tasks"]
