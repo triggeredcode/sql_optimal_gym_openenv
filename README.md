@@ -89,16 +89,22 @@ Score is based on correctness (result sets must match) and speedup:
 
 ### Golden Reference (deterministic SQL rewrites)
 
-All 15 golden queries produce correct results. Average score varies by run
-due to timing, typically **0.50–0.55** average across all tasks.
+All 15 golden queries produce correct results. Average score **0.54** across
+all tasks (varies by run due to timing).
 
-### Scoring Ranges by Difficulty
+### LLM Baseline (qwen2.5:7b, 3 attempts per task)
 
-| Difficulty | Typical Speedup | Typical Score |
-|-----------|----------------|---------------|
-| Easy      | 1.0–2.2×       | 0.30–0.65     |
-| Medium    | 1.5–3.0×       | 0.45–0.75     |
-| Hard      | 1.0–5.5×       | 0.30–1.00     |
+| Difficulty | Tasks | Avg Score | Pass Rate (>0.3) |
+|-----------|-------|-----------|-------------------|
+| Easy      | 5     | 0.336     | 3/5               |
+| Medium    | 5     | 0.274     | 2/5               |
+| Hard      | 5     | 0.424     | 3/5               |
+| **Overall** | **15** | **0.345** | **8/15**         |
+
+Notable: h1 (correlated→window) scored 0.908 and h2 (self-join→LEAD) scored
+0.816, showing 7B models can identify window function optimizations.
+Harder semantic transformations (m2 scalar→window, m5 NOT IN→anti-join)
+remain challenging.
 
 ## Setup
 
