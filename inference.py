@@ -123,7 +123,7 @@ async def run_task(env, client, task_id, task_difficulty):
 
     rewards: List[float] = []
     steps_taken = 0
-    best_score = 0.0
+    best_score = SCORE_MIN
     success = False
 
     try:
@@ -169,10 +169,15 @@ async def run_task(env, client, task_id, task_difficulty):
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as exc:
-        log_step(step=steps_taken + 1, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc))
+        steps_taken = max(steps_taken, 1)
+        rewards.append(SCORE_MIN)
+        log_step(step=steps_taken, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc))
         score = SCORE_MIN
 
-    log_end(success=success, steps=steps_taken, score=clamp_score(score), rewards=rewards)
+    if not rewards:
+        rewards = [SCORE_MIN]
+
+    log_end(success=success, steps=max(steps_taken, 1), score=clamp_score(score), rewards=rewards)
     return {"task_id": task_id, "score": score, "success": success, "steps": steps_taken}
 
 
