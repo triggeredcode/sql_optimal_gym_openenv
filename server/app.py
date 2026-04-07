@@ -47,19 +47,21 @@ if isinstance(app, FastAPI):
     @app.get("/grader")
     async def grader_info():
         return {
-            "description": "Tasks are graded 0.0-1.0 based on correctness and speedup.",
+            "description": "Tasks are graded strictly in (0, 1) based on correctness and speedup.",
             "scoring": {
-                "correctness": "Results must exactly match the original query (order-independent)",
-                "speedup_5x+": "Score 1.0 — query is 5x or more faster",
-                "speedup_2x-5x": "Score 0.6-1.0 — linearly scaled",
-                "speedup_1x-2x": "Score 0.3-0.6 — linearly scaled",
-                "speedup_<1x": "Score 0.1-0.3 — query is slower than original",
+                "incorrect": "Score 0.01 — results don't match original",
+                "correct_slower": "Score 0.10–0.30 — query is slower than original",
+                "correct_1x-2x": "Score 0.30–0.60 — minor improvement",
+                "correct_2x-5x": "Score 0.60–0.99 — good optimization",
+                "correct_5x+": "Score 0.99 — excellent optimization",
             },
             "details": {
                 "timing": "Median of 3 runs for each query",
                 "comparison": "Order-independent result set comparison",
                 "numeric_tolerance": "1e-4 for float comparison",
                 "safety": "DROP, DELETE, ALTER, INSERT, UPDATE are blocked",
+                "repeat_penalty": "Submitting the same query twice costs -0.15; 3+ repeats are blocked",
+                "score_range": "All scores strictly in (0.01, 0.99)",
             },
         }
 

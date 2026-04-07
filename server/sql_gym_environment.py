@@ -36,6 +36,10 @@ FORBIDDEN_PATTERNS = [
 ]
 
 
+REPEAT_PENALTY_THRESHOLD = 2
+REPEAT_PENALTY = 0.15
+
+
 class SQLGymEnvironment(Environment):
     """SQL optimization environment with correctness + speedup grading."""
 
@@ -45,12 +49,25 @@ class SQLGymEnvironment(Environment):
         self._state = SQLState()
         self._task = None
         self._conn: duckdb.DuckDBPyConnection = None
+        self._query_history: list = []
+
+    def get_metadata(self):
+        return {
+            "name": "sql_gym",
+            "description": "SQL Query Optimization Environment — trains AI agents to rewrite slow queries for measurable speedup",
+            "version": "0.2.0",
+            "author": "triggeredcode",
+            "tasks": len(TASK_REGISTRY),
+            "difficulties": ["easy", "medium", "hard"],
+            "scoring": "correctness × speedup, strictly in (0, 1)",
+        }
 
     def reset(self, seed=None, episode_id=None, task_id=None, **kwargs) -> SQLObservation:
         if self._conn:
             self._conn.close()
 
         self._conn = duckdb.connect(":memory:")
+        self._query_history = []
 
         if task_id and task_id in TASK_REGISTRY:
             self._task = get_task(task_id)
@@ -104,11 +121,28 @@ class SQLGymEnvironment(Environment):
             hint=self._task.hint if self._task.difficulty == "easy" else None,
         )
 
+    def _normalize_query(self, query: str) -> str:
+        """Normalize whitespace for duplicate detection."""
+        return " ".join(query.split()).lower().strip()
+
     def step(self, action: SQLAction, timeout_s=None, **kwargs) -> SQLObservation:
         self._state.step_count += 1
         self._state.current_step += 1
 
         query = action.query.strip()
+        normalized = self._normalize_query(query)
+
+        repeat_count = sum(1 for q in self._query_history if q == normalized)
+        self._query_history.append(normalized)
+
+        if repeat_count >= REPEAT_PENALTY_THRESHOLD:
+            return self._make_observation(
+                last_query=query,
+                last_error=(
+                    f"Duplicate query (submitted {repeat_count + 1} times). "
+                    "Try a different optimization approach."
+                ),
+            )
 
         safe, msg = self._check_safety(query)
         if not safe:
@@ -126,6 +160,10 @@ class SQLGymEnvironment(Environment):
                 last_query=query,
                 last_error=f"Grading error: {str(e)[:500]}",
             )
+
+        if repeat_count == 1:
+            score = max(SCORE_MIN, score - REPEAT_PENALTY)
+            grade_msg += f" | Repeat penalty: -{REPEAT_PENALTY:.2f}"
 
         try:
             preview_rows = self._conn.execute(query).fetchdf().head(10).to_string(index=False)
