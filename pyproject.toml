@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openenv-sql_gym"
-version = "0.1.0"
-description = "SQL Query Optimization environment for OpenEnv — trains agents to rewrite slow queries"
+version = "0.3.0"
+description = "SQL Query Optimization environment for OpenEnv — trains agents to rewrite slow queries for measurable speedup"
 requires-python = ">=3.10"
 dependencies = [
     "openenv-core[core]>=0.2.1",
