@@ -53,6 +53,7 @@ register_task(Task(
     ),
     hint="The three status filters never overlap, so UNION's dedup adds overhead. Use WHERE status IN (...).",
     max_steps=5,
+    skill_tags=["union_elimination", "predicate_consolidation"],
     original_query="""
         SELECT order_id, customer_id, amount, status, region
         FROM (
@@ -87,6 +88,7 @@ register_task(Task(
     ),
     hint="order_id is already unique — DISTINCT adds overhead for no benefit.",
     max_steps=5,
+    skill_tags=["redundant_operation_removal", "key_awareness"],
     original_query="""
         SELECT DISTINCT order_id, customer_id, amount
         FROM orders
@@ -150,6 +152,7 @@ register_task(Task(
     ),
     hint="EXISTS returns TRUE as soon as it finds one row, avoiding a full count.",
     max_steps=5,
+    skill_tags=["early_termination", "existence_check"],
     original_query="""
         SELECT c.customer_id, c.name, c.city
         FROM cust c
@@ -181,6 +184,7 @@ register_task(Task(
     ),
     hint="GROUP BY region, status, product is cheaper than GROUP BY region || '-' || status || '-' || product.",
     max_steps=5,
+    skill_tags=["expression_pushdown", "groupby_optimization"],
     original_query="""
         SELECT
             region || '-' || status || '-' || product AS group_key,
@@ -221,6 +225,7 @@ register_task(Task(
     ),
     hint="ORDER BY in a subquery is discarded when the outer query has its own ORDER BY.",
     max_steps=5,
+    skill_tags=["sort_elimination", "subquery_simplification"],
     original_query="""
         SELECT customer_id, total_amount, order_count FROM (
             SELECT

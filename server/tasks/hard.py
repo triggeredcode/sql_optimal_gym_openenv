@@ -77,6 +77,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=12,
+    skill_tags=["window_functions", "running_totals", "correlated_subquery_elimination"],
     original_query="""
         SELECT
             e.user_id,
@@ -130,6 +131,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=12,
+    skill_tags=["window_functions", "lead_lag", "self_join_elimination", "qualify"],
     original_query="""
         SELECT
             a.user_id,
@@ -182,6 +184,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=12,
+    skill_tags=["filter_aggregation", "scan_consolidation", "correlated_subquery_elimination"],
     original_query="""
         SELECT
             country,
@@ -261,6 +264,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=12,
+    skill_tags=["filter_aggregation", "correlated_subquery_elimination", "groupby_optimization"],
     original_query="""
         SELECT
             store_id,
@@ -300,6 +304,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=12,
+    skill_tags=["cte_refactoring", "correlated_subquery_elimination", "scan_reduction"],
     original_query="""
         SELECT
             tier,

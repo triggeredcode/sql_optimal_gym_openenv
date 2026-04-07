@@ -17,7 +17,8 @@ except ImportError:
     from models import SQLAction, SQLObservation, SQLState
 
 from .grading import (
-    grade_query, get_explain, get_schema_info, get_table_stats, get_index_info,
+    grade_query, get_explain, get_explain_analyze,
+    get_schema_info, get_table_stats, get_index_info,
     clamp_score, SCORE_MIN,
 )
 from .tasks import get_task, get_tasks_by_difficulty, list_tasks, TASK_REGISTRY
@@ -118,6 +119,7 @@ class SQLGymEnvironment(Environment):
             current_score=SCORE_MIN,
             step_number=0,
             max_steps=self._task.max_steps,
+            steps_remaining=self._task.max_steps,
             hint=self._task.hint if self._task.difficulty == "easy" else None,
         )
 
@@ -170,7 +172,7 @@ class SQLGymEnvironment(Environment):
         except Exception:
             preview_rows = "(could not preview)"
 
-        explain = get_explain(self._conn, query)
+        explain = get_explain_analyze(self._conn, query)
 
         prev_best = self._state.best_score
         self._state.best_score = max(self._state.best_score, score)
@@ -190,6 +192,8 @@ class SQLGymEnvironment(Environment):
 
         clamped_score = clamp_score(score)
         clamped_best = clamp_score(self._state.best_score)
+
+        remaining = max(0, self._state.max_steps - self._state.current_step)
 
         return SQLObservation(
             done=done,
@@ -211,11 +215,13 @@ class SQLGymEnvironment(Environment):
             current_score=clamped_best,
             step_number=self._state.current_step,
             max_steps=self._state.max_steps,
+            steps_remaining=remaining,
             hint=self._task.hint if self._task.difficulty == "easy" else None,
         )
 
     def _make_observation(self, last_query: str, last_error: str) -> SQLObservation:
         done = self._state.current_step >= self._state.max_steps
+        remaining = max(0, self._state.max_steps - self._state.current_step)
         return SQLObservation(
             done=done,
             reward=SCORE_MIN,
@@ -236,6 +242,7 @@ class SQLGymEnvironment(Environment):
             current_score=clamp_score(self._state.best_score),
             step_number=self._state.current_step,
             max_steps=self._state.max_steps,
+            steps_remaining=remaining,
             hint=self._task.hint if self._task.difficulty == "easy" else None,
         )
 

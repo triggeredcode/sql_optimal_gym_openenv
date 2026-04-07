@@ -71,6 +71,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=8,
+    skill_tags=["cte_refactoring", "correlated_subquery_elimination", "scan_reduction"],
     original_query="""
         SELECT
             c.customer_id,
@@ -127,6 +128,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=8,
+    skill_tags=["window_functions", "scalar_subquery_elimination"],
     original_query="""
         SELECT
             oi.item_id,
@@ -235,6 +237,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=8,
+    skill_tags=["join_elimination", "pre_aggregation", "cardinality_reduction"],
     original_query="""
         SELECT
             p.post_id,
@@ -288,6 +291,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=8,
+    skill_tags=["filter_aggregation", "scan_consolidation", "conditional_count"],
     original_query="""
         SELECT
             c.customer_id,
@@ -342,6 +346,7 @@ register_task(Task(
     ),
     hint=None,
     max_steps=8,
+    skill_tags=["anti_join", "null_safety", "subquery_to_join"],
     original_query="""
         SELECT customer_id, name, email, city
         FROM customers

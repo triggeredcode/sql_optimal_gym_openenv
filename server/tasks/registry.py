@@ -24,6 +24,7 @@ class Task:
     original_query: str
     golden_query: str
     setup_db: Callable[[duckdb.DuckDBPyConnection], None]
+    skill_tags: Optional[List[str]] = None
 
 
 TASK_REGISTRY: Dict[str, Task] = {}
@@ -50,6 +51,8 @@ def list_tasks() -> List[Dict]:
             "task_id": t.task_id,
             "difficulty": t.difficulty,
             "description": t.description,
+            "max_steps": t.max_steps,
+            "skill_tags": t.skill_tags or [],
         }
         for t in TASK_REGISTRY.values()
     ]

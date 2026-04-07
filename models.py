@@ -42,6 +42,7 @@ class SQLObservation(Observation):
 
     step_number: int = Field(default=0, description="Current step in episode")
     max_steps: int = Field(default=8, description="Maximum steps allowed")
+    steps_remaining: int = Field(default=8, description="Steps left before episode ends")
 
     hint: Optional[str] = Field(default=None, description="Hint for easy tasks only")
 

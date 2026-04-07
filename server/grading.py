@@ -147,6 +147,18 @@ def get_explain(conn: duckdb.DuckDBPyConnection, query: str) -> str:
         return f"EXPLAIN failed: {e}"
 
 
+def get_explain_analyze(conn: duckdb.DuckDBPyConnection, query: str) -> str:
+    """Get EXPLAIN ANALYZE output with actual per-operator timing.
+
+    Falls back to plain EXPLAIN if ANALYZE is unsupported or errors.
+    """
+    try:
+        result = conn.execute(f"EXPLAIN ANALYZE {query}").fetchall()
+        return "\n".join(str(row[1]) for row in result)
+    except Exception:
+        return get_explain(conn, query)
+
+
 def get_schema_info(conn: duckdb.DuckDBPyConnection) -> str:
     """Get schema info for all tables in the database."""
     tables = conn.execute(
