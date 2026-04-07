@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQLGym — SQL Query Optimization Challenge</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --text: #e2e2ea;
+    --text-dim: #7a7a8e;
+    --accent: #7c5cfc;
+    --accent-glow: rgba(124,92,252,0.15);
+    --green: #3ddc84;
+    --red: #ff5555;
+    --orange: #ffb86c;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 80px 20px 60px;
+    background: linear-gradient(180deg, rgba(124,92,252,0.08) 0%, transparent 100%);
+  }
+
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 12px;
+  }
+
+  .hero h1 span { color: var(--accent); }
+
+  .hero p {
+    color: var(--text-dim);
+    font-size: 1.15rem;
+    max-width: 600px;
+    margin: 0 auto 30px;
+  }
+
+  .badge-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 20px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  .badge.green { border-color: var(--green); color: var(--green); }
+  .badge.accent { border-color: var(--accent); color: var(--accent); }
+
+  .container { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+  .section { padding: 50px 0; }
+
+  .section-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-title::before {
+    content: '';
+    width: 4px;
+    height: 24px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  .ladder {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+
+  .ladder-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    transition: border-color 0.2s;
+  }
+
+  .ladder-card:hover { border-color: var(--accent); }
+
+  .ladder-card .level {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 10px;
+  }
+
+  .ladder-card.easy .level { background: rgba(61,220,132,0.15); color: var(--green); }
+  .ladder-card.medium .level { background: rgba(255,184,108,0.15); color: var(--orange); }
+  .ladder-card.hard .level { background: rgba(255,85,85,0.15); color: var(--red); }
+
+  .ladder-card h3 { font-size: 1.05rem; margin-bottom: 6px; }
+  .ladder-card p { font-size: 0.88rem; color: var(--text-dim); }
+
+  .challenge-area {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .challenge-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .challenge-header select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    font-family: var(--font-sans);
+    cursor: pointer;
+  }
+
+  .challenge-body { padding: 20px; }
+
+  .query-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .query-display {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: var(--text);
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+
+  textarea.query-input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.7;
+    resize: vertical;
+    min-height: 120px;
+    margin-bottom: 16px;
+    transition: border-color 0.2s;
+  }
+
+  textarea.query-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover { background: #6a4ae0; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover { border-color: var(--accent); }
+
+  .btn-row { display: flex; gap: 10px; margin-bottom: 20px; }
+
+  .result-panel {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    display: none;
+  }
+
+  .result-panel.show { display: block; }
+
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .result-metric {
+    text-align: center;
+  }
+
+  .result-metric .value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .result-metric .label {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .result-metric.correct .value { color: var(--green); }
+  .result-metric.incorrect .value { color: var(--red); }
+
+  .feedback-text {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+
+  .info-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+
+  .info-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--surface);
+    border-radius: 6px;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+
+  .schema-toggle {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 0.88rem;
+    margin-bottom: 12px;
+    display: inline-block;
+  }
+
+  .schema-content {
+    display: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    margin-bottom: 20px;
+  }
+
+  .schema-content.show { display: block; }
+
+  .loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .footer a { color: var(--accent); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 600px) {
+    .hero { padding: 50px 16px 40px; }
+    .challenge-header { flex-direction: column; gap: 10px; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="hero">
+  <h1><span>SQL</span>Gym</h1>
+  <p>Can you optimize slow SQL queries? Try the challenge — rewrite queries for measurable speedup against a live DuckDB environment.</p>
+  <div class="badge-row">
+    <span class="badge green">15 tasks</span>
+    <span class="badge accent">Live on HF Spaces</span>
+    <span class="badge">DuckDB engine</span>
+    <span class="badge">OpenEnv compatible</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="section">
+    <div class="section-title">Skill Ladder</div>
+    <div class="ladder">
+      <div class="ladder-card easy">
+        <span class="level">Easy</span>
+        <h3>Single-pattern recognition</h3>
+        <p>Remove redundant DISTINCT, replace UNION with IN, eliminate unnecessary ORDER BY. 5 tasks, 5 steps each.</p>
+      </div>
+      <div class="ladder-card medium">
+        <span class="level">Medium</span>
+        <h3>Multi-step rewrites</h3>
+        <p>CTE refactoring, window functions, FILTER aggregation, anti-joins. 5 tasks, 8 steps each.</p>
+      </div>
+      <div class="ladder-card hard">
+        <span class="level">Hard</span>
+        <h3>Complex analytical</h3>
+        <p>Correlated subquery elimination, LEAD/LAG, QUALIFY, multi-pass consolidation. 5 tasks, 12 steps each.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Try the Challenge</div>
+    <div class="challenge-area">
+      <div class="challenge-header">
+        <span style="font-weight:600;">Pick a task</span>
+        <select id="task-select" onchange="loadTask()">
+          <option value="">Loading tasks...</option>
+        </select>
+      </div>
+      <div class="challenge-body">
+        <div id="task-desc" style="color:var(--text-dim);font-size:0.92rem;margin-bottom:16px;"></div>
+
+        <span class="schema-toggle" onclick="toggleSchema()">Show schema & stats</span>
+        <div id="schema-content" class="schema-content"></div>
+
+        <div class="query-label">Slow original query</div>
+        <div id="original-query" class="query-display">Select a task above...</div>
+
+        <div class="query-label">Your optimized query</div>
+        <textarea id="optimized-query" class="query-input" placeholder="Write your optimized SQL here..."></textarea>
+
+        <div class="btn-row">
+          <button id="submit-btn" class="btn btn-primary" onclick="submitQuery()" disabled>
+            Submit Query
+          </button>
+          <button class="btn btn-secondary" onclick="resetChallenge()">Reset</button>
+        </div>
+
+        <div id="result-panel" class="result-panel">
+          <div class="result-grid">
+            <div id="r-correct" class="result-metric">
+              <div class="value">—</div>
+              <div class="label">Correctness</div>
+            </div>
+            <div id="r-speedup" class="result-metric">
+              <div class="value">—</div>
+              <div class="label">Speedup</div>
+            </div>
+            <div id="r-score" class="result-metric">
+              <div class="value">—</div>
+              <div class="label">Score</div>
+            </div>
+            <div id="r-step" class="result-metric">
+              <div class="value">—</div>
+              <div class="label">Steps Left</div>
+            </div>
+          </div>
+          <div id="feedback" class="feedback-text"></div>
+          <div id="info-chips" class="info-row"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Built for the <a href="https://github.com/meta-pytorch/OpenEnv">Meta PyTorch OpenEnv Hackathon</a>
+  &middot;
+  <a href="https://huggingface.co/spaces/triggeredcode/sql-gym">HF Space</a>
+  &middot;
+  <a href="https://github.com/triggeredcode/sql_optimal_gym_openenv">GitHub</a>
+</div>
+
+<script>
+const API = 'https://triggeredcode-sql-gym.hf.space';
+let currentSession = null;
+let tasks = [];
+
+async function init() {
+  try {
+    const resp = await fetch(`${API}/tasks`);
+    const data = await resp.json();
+    tasks = data.tasks;
+    const sel = document.getElementById('task-select');
+    sel.innerHTML = '<option value="">— choose a task —</option>';
+    const order = { easy: 0, medium: 1, hard: 2 };
+    tasks.sort((a, b) => (order[a.difficulty] || 0) - (order[b.difficulty] || 0));
+    for (const t of tasks) {
+      const opt = document.createElement('option');
+      opt.value = t.task_id;
+      opt.textContent = `[${t.difficulty}] ${t.task_id}`;
+      sel.appendChild(opt);
+    }
+  } catch (e) {
+    document.getElementById('task-desc').textContent = 'Could not connect to API. Is the HF Space running?';
+  }
+}
+
+async function loadTask() {
+  const sel = document.getElementById('task-select');
+  const taskId = sel.value;
+  if (!taskId) return;
+
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('result-panel').classList.remove('show');
+  document.getElementById('optimized-query').value = '';
+
+  try {
+    const resp = await fetch(`${API}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId }),
+    });
+    const data = await resp.json();
+    const obs = data.observation || data;
+
+    currentSession = { taskId, obs };
+
+    const task = tasks.find(t => t.task_id === taskId);
+    document.getElementById('task-desc').textContent = task ? task.description : '';
+    document.getElementById('original-query').textContent = (obs.original_query || '').trim();
+
+    let schema = '';
+    if (obs.schema_info) schema += '=== SCHEMA ===\n' + obs.schema_info + '\n\n';
+    if (obs.table_stats) schema += '=== TABLE STATS ===\n' + obs.table_stats + '\n\n';
+    if (obs.explain_plan) schema += '=== EXPLAIN PLAN ===\n' + obs.explain_plan;
+    document.getElementById('schema-content').textContent = schema;
+
+    if (obs.hint) {
+      document.getElementById('task-desc').textContent += '\n\nHint: ' + obs.hint;
+    }
+
+    document.getElementById('submit-btn').disabled = false;
+  } catch (e) {
+    document.getElementById('task-desc').textContent = 'Error loading task: ' + e.message;
+  }
+}
+
+function toggleSchema() {
+  document.getElementById('schema-content').classList.toggle('show');
+}
+
+async function submitQuery() {
+  const query = document.getElementById('optimized-query').value.trim();
+  if (!query || !currentSession) return;
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span> Running...';
+
+  try {
+    const ws = new WebSocket(`${API.replace('https://', 'wss://').replace('http://', 'ws://')}/ws`);
+
+    await new Promise((resolve, reject) => {
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          type: 'step',
+          action: { query },
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        const obs = data.observation || data;
+        showResult(obs, data.reward);
+        ws.close();
+        resolve();
+      };
+
+      ws.onerror = () => reject(new Error('WebSocket failed'));
+      setTimeout(() => {
+        ws.close();
+        reject(new Error('Timeout'));
+      }, 15000);
+    });
+  } catch (e) {
+    try {
+      const resp = await fetch(`${API}/step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: { query } }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const obs = data.observation || data;
+        showResult(obs, data.reward);
+      } else {
+        document.getElementById('feedback').textContent = 'Error: ' + (await resp.text());
+        document.getElementById('result-panel').classList.add('show');
+      }
+    } catch (e2) {
+      document.getElementById('feedback').textContent = 'Connection error. The environment uses WebSocket for step(). Try refreshing.';
+      document.getElementById('result-panel').classList.add('show');
+    }
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Submit Query';
+}
+
+function showResult(obs, reward) {
+  const panel = document.getElementById('result-panel');
+  panel.classList.add('show');
+
+  const correct = obs.correctness;
+  const speedup = obs.speedup || 0;
+  const score = reward || obs.current_score || 0;
+  const remaining = obs.steps_remaining;
+
+  const rc = document.getElementById('r-correct');
+  rc.querySelector('.value').textContent = correct ? 'PASS' : 'FAIL';
+  rc.className = 'result-metric ' + (correct ? 'correct' : 'incorrect');
+
+  document.getElementById('r-speedup').querySelector('.value').textContent =
+    speedup > 0 ? speedup.toFixed(2) + 'x' : '—';
+
+  const rs = document.getElementById('r-score');
+  rs.querySelector('.value').textContent = score.toFixed(3);
+  rs.className = 'result-metric ' + (score >= 0.6 ? 'correct' : '');
+
+  document.getElementById('r-step').querySelector('.value').textContent =
+    remaining !== undefined ? remaining : '—';
+
+  let fb = '';
+  if (obs.last_error) fb += obs.last_error + '\n';
+  if (obs.last_result_preview) fb += obs.last_result_preview;
+  document.getElementById('feedback').textContent = fb;
+}
+
+function resetChallenge() {
+  const sel = document.getElementById('task-select');
+  if (sel.value) loadTask();
+}
+
+init();
+</script>
+
+</body>
+</html>
