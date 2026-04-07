@@ -27,7 +27,6 @@ import sys
 import textwrap
 from typing import List, Optional
 
-import httpx
 from openai import OpenAI
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -44,6 +43,12 @@ MAX_STEPS = 5
 TEMPERATURE = 0.1
 MAX_TOKENS = 1024
 SUCCESS_SCORE_THRESHOLD = 0.6
+SCORE_MIN = 0.01
+SCORE_MAX = 0.99
+
+
+def clamp_score(s: float) -> float:
+    return max(SCORE_MIN, min(SCORE_MAX, s))
 
 SYSTEM_PROMPT = textwrap.dedent("""
     You are a SQL query optimization expert. Given a slow SQL query, table schemas,
@@ -75,9 +80,9 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
 def build_prompt(obs) -> str:
@@ -147,7 +152,7 @@ async def run_task(env, client, task_id, task_difficulty):
 
             result = await env.step(SQLAction(query=query))
             obs = result.observation
-            reward = result.reward or 0.0
+            reward = clamp_score(result.reward or SCORE_MIN)
             done = result.done
             error = obs.last_error if obs.last_error else None
 
@@ -160,15 +165,14 @@ async def run_task(env, client, task_id, task_difficulty):
             if done:
                 break
 
-        score = best_score
+        score = clamp_score(best_score)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as exc:
-        log_step(step=steps_taken + 1, action="ERROR", reward=0.0, done=True, error=str(exc))
-        score = 0.0
-    finally:
-        log_end(success=success, steps=steps_taken, rewards=rewards)
+        log_step(step=steps_taken + 1, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc))
+        score = SCORE_MIN
 
+    log_end(success=success, steps=steps_taken, score=clamp_score(score), rewards=rewards)
     return {"task_id": task_id, "score": score, "success": success, "steps": steps_taken}
 
 
@@ -183,6 +187,7 @@ async def main() -> None:
     results = []
 
     async with env:
+        import httpx
         async with httpx.AsyncClient() as http:
             resp = await http.get(f"{ENV_URL}/tasks")
             tasks = resp.json()["tasks"]

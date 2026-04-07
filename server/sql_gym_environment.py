@@ -18,6 +18,7 @@ except ImportError:
 
 from .grading import (
     grade_query, get_explain, get_schema_info, get_table_stats, get_index_info,
+    clamp_score, SCORE_MIN,
 )
 from .tasks import get_task, get_tasks_by_difficulty, list_tasks, TASK_REGISTRY
 
@@ -82,7 +83,7 @@ class SQLGymEnvironment(Environment):
 
         return SQLObservation(
             done=False,
-            reward=0.0,
+            reward=SCORE_MIN,
             task_description=self._task.description,
             task_id=self._task.task_id,
             difficulty=self._task.difficulty,
@@ -97,7 +98,7 @@ class SQLGymEnvironment(Environment):
             last_explain="",
             correctness=False,
             speedup=0.0,
-            current_score=0.0,
+            current_score=SCORE_MIN,
             step_number=0,
             max_steps=self._task.max_steps,
             hint=self._task.hint if self._task.difficulty == "easy" else None,
@@ -144,9 +145,12 @@ class SQLGymEnvironment(Environment):
         direction = "improved" if delta > 0.001 else ("regressed" if delta < -0.001 else "unchanged")
         preview_with_feedback += f"\n--- {grade_msg} | Score {direction}: {prev_best:.3f} → {score:.3f} ---"
 
+        clamped_score = clamp_score(score)
+        clamped_best = clamp_score(self._state.best_score)
+
         return SQLObservation(
             done=done,
-            reward=score,
+            reward=clamped_score,
             task_description=self._task.description,
             task_id=self._task.task_id,
             difficulty=self._task.difficulty,
@@ -161,7 +165,7 @@ class SQLGymEnvironment(Environment):
             last_explain=explain,
             correctness=correct,
             speedup=speedup,
-            current_score=self._state.best_score,
+            current_score=clamped_best,
             step_number=self._state.current_step,
             max_steps=self._state.max_steps,
             hint=self._task.hint if self._task.difficulty == "easy" else None,
@@ -171,7 +175,7 @@ class SQLGymEnvironment(Environment):
         done = self._state.current_step >= self._state.max_steps
         return SQLObservation(
             done=done,
-            reward=0.0,
+            reward=SCORE_MIN,
             task_description=self._task.description,
             task_id=self._task.task_id,
             difficulty=self._task.difficulty,
@@ -186,7 +190,7 @@ class SQLGymEnvironment(Environment):
             last_explain="",
             correctness=False,
             speedup=0.0,
-            current_score=self._state.best_score,
+            current_score=clamp_score(self._state.best_score),
             step_number=self._state.current_step,
             max_steps=self._state.max_steps,
             hint=self._task.hint if self._task.difficulty == "easy" else None,

@@ -65,6 +65,7 @@ if isinstance(app, FastAPI):
 
     @app.post("/baseline")
     async def run_baseline():
+        from .grading import clamp_score
         env = SQLGymEnvironment()
         results = []
         for task_id, task in TASK_REGISTRY.items():
@@ -72,7 +73,7 @@ if isinstance(app, FastAPI):
             obs = env.step(SQLAction(query=task.golden_query))
             results.append({
                 "task_id": task_id,
-                "score": obs.reward,
+                "score": clamp_score(obs.reward),
                 "correctness": obs.correctness,
                 "speedup": obs.speedup,
                 "done": obs.done,

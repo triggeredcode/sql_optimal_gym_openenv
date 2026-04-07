@@ -5,7 +5,7 @@ Scores an optimized query on two axes:
   - Correctness: Does the query return the same result set as the original?
   - Speedup: How much faster is the optimized query?
 
-Final score = correctness_score × speedup_score, in [0.0, 1.0].
+Final score strictly in (0, 1) — never exactly 0.0 or 1.0.
 """
 
 import time
@@ -16,6 +16,13 @@ import duckdb
 
 TIMING_RUNS = 3
 MAX_QUERY_TIME_S = 10.0
+SCORE_MIN = 0.01
+SCORE_MAX = 0.99
+
+
+def clamp_score(score: float) -> float:
+    """Clamp score to the open interval (0, 1), required by OpenEnv validator."""
+    return max(SCORE_MIN, min(SCORE_MAX, score))
 
 
 def results_match(
@@ -106,7 +113,7 @@ def grade_query(
     correct, err_msg = results_match(conn, original_query, optimized_query)
 
     if not correct:
-        return 0.0, False, 0.0, f"Incorrect results: {err_msg}"
+        return SCORE_MIN, False, 0.0, f"Incorrect results: {err_msg}"
 
     orig_time = measure_time(conn, original_query)
     opt_time = measure_time(conn, optimized_query)
@@ -117,15 +124,15 @@ def grade_query(
     speedup = orig_time / opt_time
 
     if speedup >= 5.0:
-        speedup_score = 1.0
+        speedup_score = 0.99
     elif speedup >= 2.0:
-        speedup_score = 0.6 + 0.4 * (speedup - 2.0) / 3.0
+        speedup_score = 0.6 + 0.39 * (speedup - 2.0) / 3.0
     elif speedup >= 1.0:
         speedup_score = 0.3 + 0.3 * (speedup - 1.0)
     else:
         speedup_score = max(0.1, 0.3 * speedup)
 
-    score = speedup_score
+    score = clamp_score(speedup_score)
 
     msg = f"Correct ✓ | Speedup: {speedup:.2f}x ({orig_time*1000:.1f}ms → {opt_time*1000:.1f}ms)"
     return score, True, speedup, msg
