@@ -166,7 +166,7 @@ def get_schema_info(conn: duckdb.DuckDBPyConnection) -> str:
 
 
 def get_table_stats(conn: duckdb.DuckDBPyConnection) -> str:
-    """Get row counts and basic stats for all tables."""
+    """Get row counts and column-level cardinality for all tables."""
     tables = conn.execute(
         "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
     ).fetchall()
@@ -175,6 +175,22 @@ def get_table_stats(conn: duckdb.DuckDBPyConnection) -> str:
     for (table_name,) in tables:
         count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
         lines.append(f"{table_name}: {count:,} rows")
+
+        cols = conn.execute(
+            f"SELECT column_name, data_type "
+            f"FROM information_schema.columns "
+            f"WHERE table_name='{table_name}' ORDER BY ordinal_position"
+        ).fetchall()
+        for col_name, col_type in cols:
+            try:
+                ndistinct = conn.execute(
+                    f"SELECT COUNT(DISTINCT {col_name}) FROM {table_name}"
+                ).fetchone()[0]
+                selectivity = ndistinct / count if count > 0 else 0
+                lines.append(f"  {col_name}: {ndistinct:,} distinct ({selectivity:.1%} selectivity)")
+            except Exception:
+                pass
+
     return "\n".join(lines)
 
 
