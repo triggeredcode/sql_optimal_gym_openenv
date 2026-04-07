@@ -178,10 +178,15 @@ class SQLGymEnvironment(Environment):
         done = score >= 0.95 or self._state.current_step >= self._state.max_steps
         self._state.task_completed = score >= 0.95
 
-        preview_with_feedback = preview_rows[:2500]
+        preview_with_feedback = preview_rows[:2000]
         delta = score - prev_best
         direction = "improved" if delta > 0.001 else ("regressed" if delta < -0.001 else "unchanged")
         preview_with_feedback += f"\n--- {grade_msg} | Score {direction}: {prev_best:.3f} → {score:.3f} ---"
+
+        if correct and speedup < 2.0:
+            preview_with_feedback += "\n[TIP] Your query is correct but only marginally faster. Look for structural changes: CTEs, window functions, FILTER aggregation, or join elimination."
+        elif correct and speedup >= 2.0 and score < 0.90:
+            preview_with_feedback += "\n[TIP] Good speedup! Try further: push filters earlier, eliminate redundant scans, or use DuckDB-specific features like QUALIFY."
 
         clamped_score = clamp_score(score)
         clamped_best = clamp_score(self._state.best_score)
