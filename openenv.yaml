@@ -4,3 +4,29 @@ type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
+
+description: >
+  SQL Query Optimization Environment — trains AI agents to rewrite
+  slow SQL queries for measurable speedup while producing identical
+  results. Uses DuckDB as the database engine.
+
+author: triggeredcode
+version: "0.3.0"
+
+tasks:
+  count: 15
+  difficulties: [easy, medium, hard]
+  progression: "Skill ladder — easy (single pattern) → medium (multi-step) → hard (complex analytical)"
+
+scoring:
+  range: "(0.01, 0.99)"
+  axes: [correctness, speedup]
+  method: "Correctness (exact result set match) × speedup ratio"
+
+features:
+  - EXPLAIN ANALYZE with per-operator timing
+  - Column cardinality statistics (ndistinct, selectivity)
+  - Curriculum progression with skill_tags
+  - Technique guidance for medium/hard tasks
+  - Repeat query penalty (anti-gaming)
+  - Contextual optimization tips in feedback

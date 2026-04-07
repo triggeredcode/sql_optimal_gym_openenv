@@ -50,6 +50,7 @@ class SQLGymEnv(EnvClient[SQLAction, SQLObservation, SQLState]):
             current_score=obs_data.get("current_score", 0.0),
             step_number=obs_data.get("step_number", 0),
             max_steps=obs_data.get("max_steps", 8),
+            steps_remaining=obs_data.get("steps_remaining", 8),
             hint=obs_data.get("hint"),
         )
         return StepResult(

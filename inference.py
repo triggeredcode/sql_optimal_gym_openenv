@@ -51,18 +51,29 @@ def clamp_score(s: float) -> float:
     return max(SCORE_MIN, min(SCORE_MAX, s))
 
 SYSTEM_PROMPT = textwrap.dedent("""
-    You are a SQL query optimization expert. Given a slow SQL query, table schemas,
-    EXPLAIN plan, and table statistics, rewrite the query to run faster while
+    You are a SQL query optimization expert working with DuckDB.
+    Given a slow SQL query, table schemas, EXPLAIN plan, table statistics,
+    and column cardinality data, rewrite the query to run faster while
     producing identical results.
+
+    Strategy:
+    1. Read the EXPLAIN plan to identify the most expensive operators
+    2. Check table statistics and column cardinality to understand data distribution
+    3. Apply the optimization that targets the biggest bottleneck first
+    4. On subsequent steps, read the EXPLAIN ANALYZE timing to refine further
 
     Rules:
     - Output ONLY the optimized SQL query, no explanations
     - The query must return the exact same result set (same columns, same rows)
     - Do NOT use DDL/DML (no DROP, DELETE, ALTER, INSERT, UPDATE, CREATE TABLE)
-    - Common optimizations: remove unnecessary DISTINCT/ORDER BY, replace correlated
-      subqueries with JOINs or window functions, use FILTER/CASE for conditional
-      aggregation, push predicates down, use CTEs to avoid repeated computation
-    - The database is DuckDB — it supports window functions, FILTER, QUALIFY, CTEs
+    - Do NOT submit the same query twice (repeat penalty applies)
+
+    DuckDB-specific features to leverage:
+    - Window functions: ROW_NUMBER, SUM/AVG OVER, LEAD/LAG, NTILE
+    - FILTER clause: COUNT(*) FILTER (WHERE condition) for conditional aggregation
+    - QUALIFY: filter on window function results without a subquery
+    - CTEs: WITH clauses to materialize shared subqueries once
+    - Efficient anti-joins: LEFT JOIN ... IS NULL
 """).strip()
 
 
@@ -86,7 +97,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 def build_prompt(obs) -> str:
-    parts = [f"Task: {obs.task_description}"]
+    parts = [f"Task ({obs.difficulty}): {obs.task_description}"]
     parts.append(f"\nOriginal (slow) query:\n{obs.original_query}")
     parts.append(f"\nTable schemas:\n{obs.schema_info}")
     parts.append(f"\nTable statistics:\n{obs.table_stats}")
@@ -95,14 +106,27 @@ def build_prompt(obs) -> str:
         parts.append(f"\nAvailable indexes:\n{obs.indexes}")
     if obs.hint:
         parts.append(f"\nHint: {obs.hint}")
+
+    if hasattr(obs, "last_result_preview") and obs.last_result_preview and obs.step_number == 0:
+        parts.append(f"\n{obs.last_result_preview}")
+
+    remaining = getattr(obs, "steps_remaining", None)
+
     if obs.step_number > 0:
         if obs.last_error:
             parts.append(f"\nYour last query had an error: {obs.last_error[:300]}")
         else:
             parts.append(f"\nYour last query was correct. Speedup: {obs.speedup:.2f}x, Score: {obs.current_score:.3f}")
             if obs.last_explain:
-                parts.append(f"EXPLAIN of your query:\n{obs.last_explain[:500]}")
-        parts.append("Try to improve further.")
+                parts.append(f"EXPLAIN ANALYZE of your query:\n{obs.last_explain[:800]}")
+        if hasattr(obs, "last_result_preview") and obs.last_result_preview:
+            feedback_lines = [l for l in obs.last_result_preview.split("\n") if l.startswith("[TIP]") or l.startswith("---")]
+            if feedback_lines:
+                parts.append("\n".join(feedback_lines))
+        if remaining is not None:
+            parts.append(f"\nSteps remaining: {remaining}")
+        parts.append("Try a different optimization approach.")
+
     parts.append("\nOptimized SQL query:")
     return "\n".join(parts)
 
