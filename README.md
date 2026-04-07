@@ -11,14 +11,55 @@ tags:
 
 # SQLGym — SQL Query Optimization Environment
 
-Train AI agents to optimize slow SQL queries. Agents rewrite queries to run faster while producing identical results, scored on correctness and speedup.
+An OpenEnv environment that trains AI agents to optimize slow SQL queries. Agents analyze query plans, table schemas, and execution statistics, then rewrite queries to run faster while producing identical results. Graded on correctness and measured speedup.
+
+## Why SQL Optimization?
+
+SQL query optimization is one of the most impactful real-world skills for any developer or data professional. Slow queries cause cascading failures, cost millions in cloud compute, and block product development. Yet optimization requires deep understanding of execution plans, join strategies, and data distribution — exactly the kind of multi-step reasoning that makes it an ideal RL training ground.
+
+SQLGym bridges this gap: agents receive a slow query, full schema context, and EXPLAIN plans, then iteratively rewrite until they achieve measurable speedup. Every score reflects real execution time improvement, not heuristics.
+
+## Learning Ladder — Curriculum Progression
+
+Tasks are organized as a **skill progression ladder** where patterns learned at each level transfer to harder problems:
+
+**Level 1 — Easy (5 tasks, max 5 steps)**: Single-pattern recognition. Each task has exactly one optimization opportunity and includes a hint.
+
+| ID | Pattern | Transferable Skill |
+|----|---------|-------------------|
+| `e1_union_to_in` | Replace UNION of disjoint sets with IN | Recognizing redundant operations |
+| `e2_redundant_distinct` | Remove DISTINCT on unique columns | Identifying unnecessary work |
+| `e3_count_to_exists` | Replace COUNT for existence with EXISTS | Early termination patterns |
+| `e4_string_groupby` | Replace string concat GROUP BY with columns | Avoiding expensive expressions |
+| `e5_remove_order_by` | Eliminate wasted ORDER BY in subqueries | Understanding query plan flow |
+
+**Level 2 — Medium (5 tasks, max 8 steps)**: Multi-step rewrites requiring structural changes. Skills from Level 1 combine — e.g., recognizing redundant scans (from e1) helps with m4's multi-scan consolidation.
+
+| ID | Pattern | Builds On |
+|----|---------|-----------|
+| `m1_repeated_subquery` | Correlated subqueries → CTE join | e3 (scan reduction) |
+| `m2_scalar_to_window` | Scalar subqueries → window functions | e3, e5 (subquery elimination) |
+| `m3_redundant_join` | Pre-aggregate to reduce join cardinality | e2 (removing unnecessary work) |
+| `m4_single_scan` | Multiple scans → FILTER/CASE aggregation | e1, e4 (consolidation) |
+| `m5_not_in_to_antijoin` | NOT IN → LEFT JOIN / IS NULL | e3 (existence patterns) |
+
+**Level 3 — Hard (5 tasks, max 12 steps)**: Complex analytical queries requiring deep understanding of query semantics and execution plans. Combines multiple Level 1+2 skills.
+
+| ID | Pattern | Requires |
+|----|---------|----------|
+| `h1_subquery_to_window` | N+1 correlated → window functions | m1, m2 (subquery elimination + windows) |
+| `h2_selfjoin_to_lead` | Self-join → LEAD/LAG | m3 (join optimization) + windows |
+| `h3_multi_pass_to_single` | 4 passes → single FILTER scan | m4 (consolidation at scale) |
+| `h4_correlated_to_filter` | N+1 per-store → single GROUP BY | m1, m4 (correlated elimination + FILTER) |
+| `h5_nested_to_cte` | Deeply nested subqueries → CTEs | m1 (CTE refactoring) + all scan patterns |
 
 ## How It Works
 
-1. Agent receives a slow SQL query, table schemas, EXPLAIN plan, and table statistics
-2. Agent submits an optimized rewrite
-3. Environment verifies result correctness (order-independent comparison) and measures speedup
-4. Score = f(correctness, speedup ratio) in [0.0, 1.0]
+1. Agent receives: slow SQL query, table schemas, EXPLAIN plan, table statistics, available indexes
+2. Agent submits an optimized rewrite (just a SQL string)
+3. Environment verifies correctness (order-independent result set comparison) and measures execution time
+4. Score = f(correctness, speedup) strictly in (0, 1)
+5. Agent can iterate — each step provides updated EXPLAIN plans and score feedback
 
 ## Action / Observation Space
 
@@ -28,7 +69,7 @@ Train AI agents to optimize slow SQL queries. Agents rewrite queries to run fast
 |---------|------|-------------------------------------|
 | `query` | str  | The optimized SQL query to execute  |
 
-**Observation** — everything the agent needs:
+**Observation** — full context for the agent:
 
 | Field                | Type  | Description                              |
 |---------------------|-------|------------------------------------------|
@@ -39,72 +80,41 @@ Train AI agents to optimize slow SQL queries. Agents rewrite queries to run fast
 | `indexes`           | str   | Available indexes                        |
 | `correctness`       | bool  | Whether last submission matched original |
 | `speedup`           | float | Execution time ratio (original/optimized)|
-| `current_score`     | float | Best score so far (0.0–1.0)             |
+| `current_score`     | float | Best score so far, in (0, 1)            |
 | `last_error`        | str   | Error message if last query failed       |
 | `last_explain`      | str   | EXPLAIN of last submitted query          |
-| `hint`              | str   | Hint for easy tasks only                 |
-
-## Tasks (15 total)
-
-### Easy (5 tasks, max 5 steps)
-| ID | Optimization Pattern |
-|----|---------------------|
-| `e1_union_to_in` | Replace UNION of disjoint sets with IN clause |
-| `e2_redundant_distinct` | Remove DISTINCT on already-unique columns |
-| `e3_count_to_exists` | Replace COUNT for existence check with EXISTS |
-| `e4_string_groupby` | Replace string concatenation GROUP BY with columns |
-| `e5_remove_order_by` | Eliminate wasted ORDER BY in subqueries |
-
-### Medium (5 tasks, max 8 steps)
-| ID | Optimization Pattern |
-|----|---------------------|
-| `m1_repeated_subquery` | Replace repeated correlated subqueries with CTE |
-| `m2_scalar_to_window` | Replace scalar subqueries with window functions |
-| `m3_redundant_join` | Pre-aggregate to reduce join cardinality |
-| `m4_single_scan` | Replace multiple scans with FILTER/CASE aggregation |
-| `m5_not_in_to_antijoin` | Rewrite NOT IN as LEFT JOIN / IS NULL |
-
-### Hard (5 tasks, max 12 steps)
-| ID | Optimization Pattern |
-|----|---------------------|
-| `h1_subquery_to_window` | Replace correlated subqueries with window functions |
-| `h2_selfjoin_to_lead` | Replace self-join with LEAD/LAG window functions |
-| `h3_multi_pass_to_single` | Combine multiple scans into one with FILTER |
-| `h4_correlated_to_filter` | Replace N+1 correlated subqueries with FILTER aggregation |
-| `h5_nested_to_cte` | Refactor nested subqueries into CTEs |
+| `last_result_preview`| str  | First rows of result + feedback message  |
+| `hint`              | str   | Optimization hint (easy tasks only)      |
 
 ## Scoring
 
-Score is based on correctness (result sets must match) and speedup:
+Score is based on correctness (results must match exactly) and speedup ratio:
 
-| Speedup    | Score Range |
-|------------|-------------|
-| ≥ 5×       | 1.0         |
-| 2×–5×      | 0.6–1.0     |
-| 1×–2×      | 0.3–0.6     |
-| < 1×       | 0.1–0.3     |
-| Incorrect  | 0.0         |
+| Condition   | Score Range | Signal |
+|-------------|-------------|--------|
+| Incorrect   | 0.01        | Wrong results — try again |
+| Correct, < 1x  | 0.10–0.30  | Query is slower than original |
+| Correct, 1x–2x | 0.30–0.60  | Minor improvement |
+| Correct, 2x–5x | 0.60–0.99  | Good optimization |
+| Correct, >= 5x  | 0.99       | Excellent optimization |
+
+All scores are strictly in (0, 1). Scores are continuous, providing rich gradient signal for RL training.
 
 ## Baseline Scores
 
-### Golden Reference (deterministic SQL rewrites)
+### Golden Reference (hand-written optimal rewrites)
 
-All 15 golden queries produce correct results. Average score **0.54** across
-all tasks (varies by run due to timing).
+All 15 golden queries produce correct results. Average score ~0.58 (varies by environment due to timing). Scores range from 0.34 to 0.99 across tasks.
 
-### LLM Baseline (qwen2.5:7b, 5 steps per task)
+### LLM Baseline (Qwen2.5-72B-Instruct, 5 steps per task)
 
-| Difficulty | Tasks | Avg Score | Pass Rate |
-|-----------|-------|-----------|-----------|
-| Easy      | 5     | 0.628     | 4/5       |
-| Medium    | 5     | 0.511     | 4/5       |
-| Hard      | 5     | 0.379     | 2/5       |
-| **Overall** | **15** | **0.506** | **10/15** |
+| Difficulty | Tasks | Avg Score | Range |
+|-----------|-------|-----------|-------|
+| Easy      | 5     | ~0.55     | 0.34–0.99 |
+| Medium    | 5     | ~0.49     | 0.24–0.74 |
+| Hard      | 5     | ~0.58     | 0.34–0.99 |
 
-Notable: h4 (N+1 correlated→FILTER aggregation) scored 1.000 and h1
-(correlated→window) scored 0.894, showing 7B models can identify advanced
-optimization patterns. Hard tasks like self-join→LEAD and multi-pass→single
-remain genuinely challenging.
+Hard tasks like `h3_multi_pass_to_single` and `h4_correlated_to_filter` can achieve high scores when the agent finds the optimal FILTER aggregation pattern.
 
 ## Setup
 
@@ -148,42 +158,53 @@ DDL and DML operations are blocked: `DROP`, `DELETE`, `ALTER`, `INSERT`, `UPDATE
 
 ## Reward Design
 
-- Score = f(correctness, speedup) in [0.0, 1.0] — correctness is binary, speedup is continuous
-- Incorrect results always score 0.0 (no partial credit for wrong answers)
-- Speedup scoring: ≥5x → 1.0, 2x-5x → 0.6-1.0, 1x-2x → 0.3-0.6, <1x → 0.1-0.3
-- **Result preview with feedback** shows timing breakdown and score progress after each step
-- Agents see EXPLAIN plans for both original and submitted queries to guide optimization
+- Score strictly in (0, 1) — correctness is binary, speedup is continuous
+- Incorrect results get minimum score (0.01) — no partial credit for wrong answers
+- Correct results scored by speedup ratio on a continuous scale
+- Result preview with timing feedback after each step guides iterative improvement
+- EXPLAIN plans for both original and submitted queries enable informed optimization
+- Multi-step episodes allow agents to learn from feedback and refine
 
 ## Example Agent Interaction
 
 ```
 RESET task=e1_union_to_in
-→ Observation: original query uses UNION of 3 separate SELECTs, schema shows 500K rows
+  Observation: original uses UNION of 3 SELECTs, schema shows 200K rows, hint provided
 
-STEP query="SELECT ... WHERE status IN ('completed','pending','shipped') ORDER BY amount DESC, order_id LIMIT 100"
-→ Correct ✓ | Speedup: 2.30x (5.1ms → 2.2ms) | Score: 0.641
+STEP query="SELECT ... WHERE status IN ('completed','pending','shipped') ORDER BY amount DESC LIMIT 100"
+  Correct! Speedup: 2.30x | Score: 0.64 (improved from 0.01)
 
-STEP query="WITH filtered AS (SELECT ... WHERE status IN (...)) SELECT * FROM filtered ORDER BY amount DESC, order_id LIMIT 100"
-→ Correct ✓ | Speedup: 2.45x (5.1ms → 2.1ms) | Score: 0.660
+STEP query="WITH f AS (SELECT ... WHERE status IN (...)) SELECT * FROM f ORDER BY amount DESC LIMIT 100"
+  Correct! Speedup: 2.45x | Score: 0.66 (improved from 0.64)
 ```
+
+## Data Scale
+
+| Difficulty | Tables | Rows per table | Complexity |
+|-----------|--------|----------------|------------|
+| Easy      | 1–2    | 10K–200K       | Single-pattern optimization |
+| Medium    | 2–3    | 20K–500K       | Multi-table joins, subquery rewrites |
+| Hard      | 2–3    | 25K–1M         | Analytical queries, window functions |
+
+DuckDB runs entirely in-memory with no external dependencies.
 
 ## Project Structure
 
 ```
 sql_gym/
 ├── openenv.yaml           # OpenEnv metadata
-├── models.py              # SQLAction, SQLObservation, SQLState
+├── models.py              # SQLAction, SQLObservation, SQLState (Pydantic)
 ├── client.py              # WebSocket client
 ├── inference.py           # LLM inference script (hackathon format)
-├── Dockerfile             # Container build
-├── pyproject.toml         # Dependencies
+├── Dockerfile             # Multi-stage container build
+├── pyproject.toml         # Dependencies (openenv-core, duckdb, pandas)
 └── server/
-    ├── app.py             # FastAPI server
-    ├── grading.py         # Correctness + speedup grading
-    ├── sql_gym_environment.py  # Core environment logic
+    ├── app.py             # FastAPI server + /tasks, /grader, /baseline
+    ├── grading.py         # Correctness + speedup grading engine
+    ├── sql_gym_environment.py  # Core environment (reset/step/state)
     └── tasks/
-        ├── registry.py    # Task registry
-        ├── easy.py        # 5 easy tasks (50K–200K rows)
-        ├── medium.py      # 5 medium tasks (200K–500K rows)
-        └── hard.py        # 5 hard tasks (500K rows)
+        ├── registry.py    # Task dataclass + registry
+        ├── easy.py        # 5 easy tasks (single-pattern)
+        ├── medium.py      # 5 medium tasks (multi-step)
+        └── hard.py        # 5 hard tasks (complex analytical)
 ```

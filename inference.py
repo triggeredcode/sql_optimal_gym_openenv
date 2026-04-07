@@ -186,11 +186,15 @@ async def main() -> None:
 
     results = []
 
+    difficulty_order = {"easy": 0, "medium": 1, "hard": 2}
+
     async with env:
         import httpx
         async with httpx.AsyncClient() as http:
             resp = await http.get(f"{ENV_URL}/tasks")
             tasks = resp.json()["tasks"]
+
+        tasks.sort(key=lambda t: difficulty_order.get(t.get("difficulty", ""), 99))
 
         for task_info in tasks:
             tid = task_info["task_id"]
@@ -204,6 +208,9 @@ async def main() -> None:
 
     print(f"\n{'='*60}", flush=True)
     print(f"SQLGym Results: {avg:.3f} avg, {passed}/{len(results)} passed", flush=True)
+    for r in results:
+        status = "PASS" if r["success"] else "FAIL"
+        print(f"  {status} {r['task_id']:30s} score={r['score']:.3f} steps={r['steps']}", flush=True)
     print(f"{'='*60}", flush=True)
 
 
