@@ -44,6 +44,79 @@ if isinstance(app, FastAPI):
             "action_schema": SQLAction.model_json_schema(),
         }
 
+    @app.get("/curriculum")
+    async def curriculum():
+        """Skill progression map — shows how tasks build on each other."""
+        tasks_by_diff = {}
+        for t in TASK_REGISTRY.values():
+            tasks_by_diff.setdefault(t.difficulty, []).append({
+                "task_id": t.task_id,
+                "skill_tags": t.skill_tags or [],
+                "max_steps": t.max_steps,
+                "description": t.description[:120],
+            })
+        return {
+            "curriculum": {
+                "philosophy": (
+                    "Tasks form a skill ladder: easy tasks teach single patterns, "
+                    "medium tasks combine patterns, hard tasks require multi-step "
+                    "rewrites using several patterns together."
+                ),
+                "progression": [
+                    {
+                        "level": 1,
+                        "difficulty": "easy",
+                        "focus": "Single-pattern recognition",
+                        "tasks": tasks_by_diff.get("easy", []),
+                        "core_skills": [
+                            "redundant_operation_removal",
+                            "predicate_consolidation",
+                            "early_termination",
+                            "sort_elimination",
+                        ],
+                    },
+                    {
+                        "level": 2,
+                        "difficulty": "medium",
+                        "focus": "Multi-step rewrites, structural changes",
+                        "tasks": tasks_by_diff.get("medium", []),
+                        "core_skills": [
+                            "cte_refactoring",
+                            "window_functions",
+                            "filter_aggregation",
+                            "anti_join",
+                            "join_elimination",
+                        ],
+                        "builds_on": "Level 1 patterns",
+                    },
+                    {
+                        "level": 3,
+                        "difficulty": "hard",
+                        "focus": "Complex analytical queries, deep plan understanding",
+                        "tasks": tasks_by_diff.get("hard", []),
+                        "core_skills": [
+                            "correlated_subquery_elimination",
+                            "window_functions",
+                            "filter_aggregation",
+                            "cte_refactoring",
+                            "self_join_elimination",
+                        ],
+                        "builds_on": "Level 1 + 2 patterns combined",
+                    },
+                ],
+                "technique_bank": {
+                    "scan_reduction": "Combine multiple table scans into one pass",
+                    "filter_aggregation": "COUNT/SUM FILTER (WHERE ...) instead of separate subqueries",
+                    "window_functions": "ROW_NUMBER, SUM/AVG OVER, LEAD/LAG for row-relative calculations",
+                    "cte_refactoring": "WITH clauses to materialize shared subqueries once",
+                    "correlated_subquery_elimination": "Replace per-row subqueries with joins or CTEs",
+                    "anti_join": "LEFT JOIN ... IS NULL instead of NOT IN/NOT EXISTS",
+                    "predicate_consolidation": "Merge multiple WHERE clauses or UNIONs into IN/OR",
+                    "qualify": "DuckDB-specific: filter window function results inline",
+                },
+            },
+        }
+
     @app.get("/grader")
     async def grader_info():
         return {

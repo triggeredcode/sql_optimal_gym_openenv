@@ -40,6 +40,21 @@ FORBIDDEN_PATTERNS = [
 REPEAT_PENALTY_THRESHOLD = 2
 REPEAT_PENALTY = 0.15
 
+TECHNIQUE_GUIDANCE = {
+    "medium": (
+        "[TECHNIQUES] At this level, consider: "
+        "CTE refactoring (WITH clauses), window functions (SUM/COUNT OVER), "
+        "COUNT FILTER (WHERE ...) for conditional aggregation, "
+        "LEFT JOIN ... IS NULL for anti-joins, pre-aggregation before joins."
+    ),
+    "hard": (
+        "[TECHNIQUES] Advanced patterns to try: "
+        "ROW_NUMBER/LEAD/LAG windows, multi-column FILTER aggregation, "
+        "CTE materialization of shared scans, QUALIFY for inline window filtering, "
+        "push predicates into CTEs/subqueries, eliminate self-joins via windows."
+    ),
+}
+
 
 class SQLGymEnvironment(Environment):
     """SQL optimization environment with correctness + speedup grading."""
@@ -99,6 +114,8 @@ class SQLGymEnvironment(Environment):
             task_completed=False,
         )
 
+        guidance = TECHNIQUE_GUIDANCE.get(self._task.difficulty, "")
+
         return SQLObservation(
             done=False,
             reward=SCORE_MIN,
@@ -111,7 +128,7 @@ class SQLGymEnvironment(Environment):
             explain_plan=explain,
             indexes=indexes,
             last_query="",
-            last_result_preview="",
+            last_result_preview=guidance,
             last_error="",
             last_explain="",
             correctness=False,

@@ -75,15 +75,17 @@ Tasks are organized as a **skill progression ladder** where patterns learned at 
 |---------------------|-------|------------------------------------------|
 | `original_query`    | str   | The slow query to optimize               |
 | `schema_info`       | str   | CREATE TABLE statements for all tables   |
-| `table_stats`       | str   | Row counts per table                     |
+| `table_stats`       | str   | Row counts + column cardinality per table|
 | `explain_plan`      | str   | EXPLAIN output of the original query     |
 | `indexes`           | str   | Available indexes                        |
 | `correctness`       | bool  | Whether last submission matched original |
 | `speedup`           | float | Execution time ratio (original/optimized)|
 | `current_score`     | float | Best score so far, in (0, 1)            |
 | `last_error`        | str   | Error message if last query failed       |
-| `last_explain`      | str   | EXPLAIN of last submitted query          |
-| `last_result_preview`| str  | First rows of result + feedback message  |
+| `last_explain`      | str   | EXPLAIN ANALYZE of submitted query (with per-operator timing) |
+| `last_result_preview`| str  | First rows + feedback + optimization tips|
+| `step_number`       | int   | Current step in episode                  |
+| `steps_remaining`   | int   | Steps left before episode ends           |
 | `hint`              | str   | Optimization hint (easy tasks only)      |
 
 ## Scoring
@@ -133,14 +135,15 @@ docker run -p 8000:8000 sql-gym
 
 ### Endpoints
 
-| Method | Path       | Description                      |
-|--------|-----------|----------------------------------|
-| GET    | `/health` | Health check                     |
-| GET    | `/tasks`  | List all tasks with descriptions |
-| GET    | `/grader` | Scoring methodology              |
-| POST   | `/baseline`| Run golden queries on all tasks |
-| POST   | `/reset`  | Reset environment for a task     |
-| WS     | `/ws`     | WebSocket for step/reset/state   |
+| Method | Path         | Description                              |
+|--------|-------------|------------------------------------------|
+| GET    | `/health`   | Health check                             |
+| GET    | `/tasks`    | List all tasks with descriptions + skill_tags |
+| GET    | `/grader`   | Scoring methodology and rules            |
+| GET    | `/curriculum`| Skill progression map and technique bank |
+| POST   | `/baseline` | Run golden queries on all tasks          |
+| POST   | `/reset`    | Reset environment for a task             |
+| WS     | `/ws`       | WebSocket for step/reset/state           |
 
 ### Running Inference
 
@@ -162,7 +165,10 @@ DDL and DML operations are blocked: `DROP`, `DELETE`, `ALTER`, `INSERT`, `UPDATE
 - Incorrect results get minimum score (0.01) — no partial credit for wrong answers
 - Correct results scored by speedup ratio on a continuous scale
 - Result preview with timing feedback after each step guides iterative improvement
-- EXPLAIN plans for both original and submitted queries enable informed optimization
+- EXPLAIN ANALYZE for submitted queries shows per-operator timing — agents see WHERE bottlenecks are
+- Contextual tips (e.g. "try window functions", "use FILTER aggregation") based on current score
+- Technique guidance on reset for medium/hard tasks — lists applicable optimization patterns
+- Repeat penalty: -0.15 for first duplicate, blocked on 3+ repeats (anti-gaming)
 - Multi-step episodes allow agents to learn from feedback and refine
 
 ## Example Agent Interaction
