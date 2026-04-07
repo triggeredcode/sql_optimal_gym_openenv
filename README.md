@@ -171,17 +171,36 @@ DDL and DML operations are blocked: `DROP`, `DELETE`, `ALTER`, `INSERT`, `UPDATE
 - Repeat penalty: -0.15 for first duplicate, blocked on 3+ repeats (anti-gaming)
 - Multi-step episodes allow agents to learn from feedback and refine
 
+## Design Philosophy
+
+**Approach-agnostic grading** — The environment doesn't check for specific optimization patterns. Any rewrite that produces correct results and runs faster gets proportional reward. CASE WHEN scores as well as FILTER, direct JOINs score as well as CTEs.
+
+**Rich observation for reasoning** — Each observation provides everything a human DBA would have: schema, cardinality statistics (ndistinct + selectivity per column), EXPLAIN plan, and after each submission, EXPLAIN ANALYZE with actual per-operator timing. The agent can see WHERE time is spent, not just WHAT the plan looks like.
+
+**Guided exploration** — Easy tasks include explicit hints. Medium/hard tasks include technique guidance on reset. After each step, contextual tips suggest what to try next based on the current speedup score. This helps agents avoid random exploration and focus on high-yield patterns.
+
+**Anti-gaming** — Repeat query penalties prevent agents from scoring by submitting the same query. The first duplicate costs -0.15, and 3+ repeats are blocked entirely.
+
+**Curriculum transfer** — Skills learned at each level directly apply to harder problems. Window functions from e5 help with m2; FILTER aggregation from m4 is essential for h3 and h4.
+
 ## Example Agent Interaction
 
 ```
-RESET task=e1_union_to_in
-  Observation: original uses UNION of 3 SELECTs, schema shows 200K rows, hint provided
+RESET task=m1_repeated_subquery (medium)
+  Observation: two correlated subqueries scanning order_items per row
+  Schema: customers (20K rows), order_items (500K rows)
+  [TECHNIQUES] CTE refactoring, window functions, FILTER aggregation...
 
-STEP query="SELECT ... WHERE status IN ('completed','pending','shipped') ORDER BY amount DESC LIMIT 100"
-  Correct! Speedup: 2.30x | Score: 0.64 (improved from 0.01)
-
-STEP query="WITH f AS (SELECT ... WHERE status IN (...)) SELECT * FROM f ORDER BY amount DESC LIMIT 100"
-  Correct! Speedup: 2.45x | Score: 0.66 (improved from 0.64)
+STEP query="WITH agg AS (SELECT customer_id, COUNT(*) AS cnt, SUM(qty*price) AS total
+             FROM order_items WHERE order_date >= '2024-01-01' GROUP BY customer_id)
+             SELECT c.customer_id, c.name, c.city, agg.cnt, agg.total
+             FROM customers c LEFT JOIN agg ON c.customer_id = agg.customer_id
+             WHERE c.city IN ('New York', 'Chicago', 'LA')
+             ORDER BY total DESC NULLS LAST LIMIT 50"
+  Correct! Speedup: 2.64x (5.2ms → 2.0ms) | Score improved: 0.010 → 0.683
+  EXPLAIN ANALYZE: Hash Join (0.8ms), Sequential Scan (0.6ms), Hash Aggregate (0.4ms)
+  [TIP] Good speedup! Try further: push filters earlier, eliminate redundant scans...
+  Steps remaining: 7
 ```
 
 ## Data Scale
