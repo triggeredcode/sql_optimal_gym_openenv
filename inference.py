@@ -46,6 +46,11 @@ SUCCESS_SCORE_THRESHOLD = 0.6
 SCORE_MIN = 0.01
 SCORE_MAX = 0.99
 
+WS_CONNECT_TIMEOUT = 120.0
+WS_MESSAGE_TIMEOUT = 120.0
+WARMUP_MAX_RETRIES = 15
+WARMUP_INITIAL_DELAY = 5
+
 
 def clamp_score(s: float) -> float:
     return max(SCORE_MIN, min(SCORE_MAX, s))
@@ -91,9 +96,9 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
 
 
 def build_prompt(obs) -> str:
@@ -140,6 +145,41 @@ def extract_sql(raw: str) -> str:
     lines = text.strip().split("\n")
     sql_lines = [l for l in lines if l.strip() and not l.strip().startswith("--") and not l.strip().startswith("#")]
     return "\n".join(sql_lines) if sql_lines else text.strip()
+
+
+async def warmup_space(url: str) -> bool:
+    """Wake up the HF Space with HTTP pings before attempting WebSocket."""
+    import httpx
+
+    for attempt in range(1, WARMUP_MAX_RETRIES + 1):
+        delay = min(WARMUP_INITIAL_DELAY * (1.5 ** (attempt - 1)), 30)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http:
+                resp = await http.get(f"{url}/health")
+                if resp.status_code == 200:
+                    print(f"[DEBUG] Space is awake (attempt {attempt})", flush=True)
+                    return True
+                print(f"[DEBUG] Warmup attempt {attempt}: HTTP {resp.status_code}", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] Warmup attempt {attempt}: {type(e).__name__}: {e}", flush=True)
+        await asyncio.sleep(delay)
+
+    print("[DEBUG] Space did not wake after all warmup attempts", flush=True)
+    return False
+
+
+async def connect_with_retry(env, max_retries: int = 3) -> bool:
+    """Connect to the environment with retries and exponential backoff."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            await env.connect()
+            print(f"[DEBUG] WebSocket connected (attempt {attempt})", flush=True)
+            return True
+        except Exception as e:
+            print(f"[DEBUG] Connection attempt {attempt}/{max_retries}: {type(e).__name__}: {e}", flush=True)
+            if attempt < max_retries:
+                await asyncio.sleep(5 * attempt)
+    return False
 
 
 async def run_task(env, client, task_id, task_difficulty):
@@ -201,7 +241,7 @@ async def run_task(env, client, task_id, task_difficulty):
     if not rewards:
         rewards = [SCORE_MIN]
 
-    log_end(success=success, steps=max(steps_taken, 1), score=clamp_score(score), rewards=rewards)
+    log_end(success=success, steps=max(steps_taken, 1), rewards=rewards)
     return {"task_id": task_id, "score": score, "success": success, "steps": steps_taken}
 
 
@@ -211,16 +251,30 @@ async def main() -> None:
         sys.exit(1)
 
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    env = SQLGymEnv(base_url=ENV_URL)
+
+    print(f"[DEBUG] Warming up HF Space at {ENV_URL}...", flush=True)
+    space_ready = await warmup_space(ENV_URL)
+    if not space_ready:
+        print("[DEBUG] Proceeding anyway — space may respond to WebSocket", flush=True)
+
+    env = SQLGymEnv(
+        base_url=ENV_URL,
+        connect_timeout_s=WS_CONNECT_TIMEOUT,
+        message_timeout_s=WS_MESSAGE_TIMEOUT,
+    )
 
     results = []
-
     difficulty_order = {"easy": 0, "medium": 1, "hard": 2}
 
-    async with env:
+    try:
+        connected = await connect_with_retry(env, max_retries=3)
+        if not connected:
+            raise ConnectionError(f"Could not connect to {ENV_URL} after retries")
+
         import httpx
-        async with httpx.AsyncClient() as http:
+        async with httpx.AsyncClient(timeout=30.0) as http:
             resp = await http.get(f"{ENV_URL}/tasks")
+            resp.raise_for_status()
             tasks = resp.json()["tasks"]
 
         tasks.sort(key=lambda t: difficulty_order.get(t.get("difficulty", ""), 99))
@@ -230,6 +284,20 @@ async def main() -> None:
             diff = task_info.get("difficulty", "?")
             result = await run_task(env, client, tid, diff)
             results.append(result)
+
+    except Exception as exc:
+        print(f"[DEBUG] Fatal error: {type(exc).__name__}: {exc}", flush=True)
+        if not results:
+            log_start(task="connection_error", env=BENCHMARK, model=MODEL_NAME)
+            log_step(step=1, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc))
+            log_end(success=False, steps=1, rewards=[SCORE_MIN])
+            sys.exit(1)
+
+    finally:
+        try:
+            await env.close()
+        except Exception:
+            pass
 
     scores = [r["score"] for r in results]
     avg = sum(scores) / len(scores) if scores else 0
