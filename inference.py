@@ -33,6 +33,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from client import SQLGymEnv
 from models import SQLAction
 
+
+def dbg(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
+
+
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
@@ -48,8 +53,9 @@ SCORE_MAX = 0.99
 
 WS_CONNECT_TIMEOUT = 120.0
 WS_MESSAGE_TIMEOUT = 120.0
-WARMUP_MAX_RETRIES = 15
-WARMUP_INITIAL_DELAY = 5
+WARMUP_MAX_RETRIES = 10
+WARMUP_INITIAL_DELAY = 3
+WARMUP_MAX_TOTAL_S = 120
 
 
 def clamp_score(s: float) -> float:
@@ -150,33 +156,37 @@ def extract_sql(raw: str) -> str:
 async def warmup_space(url: str) -> bool:
     """Wake up the HF Space with HTTP pings before attempting WebSocket."""
     import httpx
+    import time
 
+    start = time.monotonic()
     for attempt in range(1, WARMUP_MAX_RETRIES + 1):
-        delay = min(WARMUP_INITIAL_DELAY * (1.5 ** (attempt - 1)), 30)
+        if time.monotonic() - start > WARMUP_MAX_TOTAL_S:
+            dbg(f"Warmup budget exhausted ({WARMUP_MAX_TOTAL_S}s)")
+            break
+        delay = min(WARMUP_INITIAL_DELAY * (1.3 ** (attempt - 1)), 15)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as http:
+            async with httpx.AsyncClient(timeout=20.0) as http:
                 resp = await http.get(f"{url}/health")
                 if resp.status_code == 200:
-                    print(f"[DEBUG] Space is awake (attempt {attempt})", flush=True)
+                    dbg(f"Space awake (attempt {attempt})")
                     return True
-                print(f"[DEBUG] Warmup attempt {attempt}: HTTP {resp.status_code}", flush=True)
+                dbg(f"Warmup {attempt}: HTTP {resp.status_code}")
         except Exception as e:
-            print(f"[DEBUG] Warmup attempt {attempt}: {type(e).__name__}: {e}", flush=True)
+            dbg(f"Warmup {attempt}: {type(e).__name__}")
         await asyncio.sleep(delay)
 
-    print("[DEBUG] Space did not wake after all warmup attempts", flush=True)
+    dbg("Space did not wake after warmup")
     return False
 
 
 async def connect_with_retry(env, max_retries: int = 3) -> bool:
-    """Connect to the environment with retries and exponential backoff."""
     for attempt in range(1, max_retries + 1):
         try:
             await env.connect()
-            print(f"[DEBUG] WebSocket connected (attempt {attempt})", flush=True)
+            dbg(f"WebSocket connected (attempt {attempt})")
             return True
         except Exception as e:
-            print(f"[DEBUG] Connection attempt {attempt}/{max_retries}: {type(e).__name__}: {e}", flush=True)
+            dbg(f"Connect {attempt}/{max_retries}: {type(e).__name__}: {e}")
             if attempt < max_retries:
                 await asyncio.sleep(5 * attempt)
     return False
@@ -194,48 +204,51 @@ async def run_task(env, client, task_id, task_difficulty):
         result = await env.reset(task_id=task_id)
         obs = result.observation
 
-        for step in range(1, MAX_STEPS + 1):
-            if result.done:
-                break
+        if result.done:
+            rewards.append(SCORE_MIN)
+            steps_taken = 1
+            log_step(step=1, action="NOOP", reward=SCORE_MIN, done=True, error="task already done on reset")
+        else:
+            for step in range(1, MAX_STEPS + 1):
+                prompt = build_prompt(obs)
+                try:
+                    response = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt},
+                        ],
+                        max_tokens=MAX_TOKENS,
+                        temperature=TEMPERATURE,
+                    )
+                    raw = response.choices[0].message.content or ""
+                    query = extract_sql(raw)
+                except Exception:
+                    query = obs.original_query
 
-            prompt = build_prompt(obs)
-            try:
-                response = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=MAX_TOKENS,
-                    temperature=TEMPERATURE,
-                )
-                raw = response.choices[0].message.content or ""
-                query = extract_sql(raw)
-            except Exception as e:
-                query = obs.original_query
+                result = await env.step(SQLAction(query=query))
+                obs = result.observation
+                reward = clamp_score(result.reward or SCORE_MIN)
+                done = result.done
+                error = obs.last_error if obs.last_error else None
 
-            result = await env.step(SQLAction(query=query))
-            obs = result.observation
-            reward = clamp_score(result.reward or SCORE_MIN)
-            done = result.done
-            error = obs.last_error if obs.last_error else None
+                rewards.append(reward)
+                steps_taken = step
+                best_score = max(best_score, reward)
 
-            rewards.append(reward)
-            steps_taken = step
-            best_score = max(best_score, reward)
+                log_step(step=step, action=query, reward=reward, done=done, error=error)
 
-            log_step(step=step, action=query, reward=reward, done=done, error=error)
+                if done:
+                    break
 
-            if done:
-                break
-
-        score = clamp_score(best_score)
+        score = clamp_score(max(best_score, SCORE_MIN))
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as exc:
-        steps_taken = max(steps_taken, 1)
+        err_step = steps_taken + 1
         rewards.append(SCORE_MIN)
-        log_step(step=steps_taken, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc))
+        log_step(step=err_step, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc)[:200])
+        steps_taken = err_step
         score = SCORE_MIN
 
     if not rewards:
@@ -247,15 +260,15 @@ async def run_task(env, client, task_id, task_difficulty):
 
 async def main() -> None:
     if not API_KEY:
-        print("Error: Set HF_TOKEN or API_KEY environment variable", file=sys.stderr)
+        dbg("Error: Set HF_TOKEN or API_KEY environment variable")
         sys.exit(1)
 
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    print(f"[DEBUG] Warming up HF Space at {ENV_URL}...", flush=True)
+    dbg(f"Warming up HF Space at {ENV_URL}...")
     space_ready = await warmup_space(ENV_URL)
     if not space_ready:
-        print("[DEBUG] Proceeding anyway — space may respond to WebSocket", flush=True)
+        dbg("Proceeding anyway — space may respond to WebSocket")
 
     env = SQLGymEnv(
         base_url=ENV_URL,
@@ -286,10 +299,10 @@ async def main() -> None:
             results.append(result)
 
     except Exception as exc:
-        print(f"[DEBUG] Fatal error: {type(exc).__name__}: {exc}", flush=True)
+        dbg(f"Fatal: {type(exc).__name__}: {exc}")
         if not results:
             log_start(task="connection_error", env=BENCHMARK, model=MODEL_NAME)
-            log_step(step=1, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc))
+            log_step(step=1, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc)[:200])
             log_end(success=False, steps=1, rewards=[SCORE_MIN])
             sys.exit(1)
 
@@ -303,12 +316,10 @@ async def main() -> None:
     avg = sum(scores) / len(scores) if scores else 0
     passed = sum(1 for r in results if r["success"])
 
-    print(f"\n{'='*60}", flush=True)
-    print(f"SQLGym Results: {avg:.3f} avg, {passed}/{len(results)} passed", flush=True)
+    dbg(f"SQLGym Results: {avg:.3f} avg, {passed}/{len(results)} passed")
     for r in results:
         status = "PASS" if r["success"] else "FAIL"
-        print(f"  {status} {r['task_id']:30s} score={r['score']:.3f} steps={r['steps']}", flush=True)
-    print(f"{'='*60}", flush=True)
+        dbg(f"  {status} {r['task_id']:30s} score={r['score']:.3f} steps={r['steps']}")
 
 
 if __name__ == "__main__":
