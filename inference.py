@@ -102,9 +102,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    clamped = clamp_score(score)
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={clamped:.3f} rewards={rewards_str}", flush=True)
 
 
 def build_prompt(obs) -> str:
@@ -254,7 +255,7 @@ async def run_task(env, client, task_id, task_difficulty):
     if not rewards:
         rewards = [SCORE_MIN]
 
-    log_end(success=success, steps=max(steps_taken, 1), rewards=rewards)
+    log_end(success=success, steps=max(steps_taken, 1), score=score, rewards=rewards)
     return {"task_id": task_id, "score": score, "success": success, "steps": steps_taken}
 
 
@@ -303,7 +304,7 @@ async def main() -> None:
         if not results:
             log_start(task="connection_error", env=BENCHMARK, model=MODEL_NAME)
             log_step(step=1, action="ERROR", reward=SCORE_MIN, done=True, error=str(exc)[:200])
-            log_end(success=False, steps=1, rewards=[SCORE_MIN])
+            log_end(success=False, steps=1, score=SCORE_MIN, rewards=[SCORE_MIN])
             sys.exit(1)
 
     finally:
